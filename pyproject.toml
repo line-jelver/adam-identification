@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "adam-identification"
+version = "1.0.0"
+description = "Database-grounded LLM agent for atomistic structure identification from natural language"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Line Jelver", email = "line.jelver@sdu.dk" }]
+keywords = ["materials science", "LLM", "atomistic", "Materials Project", "PubChem", "DFT"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "mp-api>=0.44",
+    "pymatgen>=2024.1",
+    "ase>=3.23",
+    "httpx>=0.27",
+    "jinja2>=3.1",
+    "pydantic>=2.7",
+    "rich>=13.0",
+    "typer>=0.12",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+adam-identify = "adam_identification.cli:app"
+
+[project.urls]
+Repository = "https://github.com/line-jelver/adam-identification"
+"Bug Tracker" = "https://github.com/line-jelver/adam-identification/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["adam_identification"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"adam_identification/templates" = "adam_identification/templates"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

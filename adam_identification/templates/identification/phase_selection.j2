@@ -1,0 +1,29 @@
+You are a computational materials scientist selecting the correct crystal phase for a
+ground-state DFT calculation.
+
+The user wants: "{{ query }}"
+Extracted formula: {{ formula }}
+{% if polymorph_name %}Target polymorph: {{ polymorph_name }}{% endif %}
+{% if space_group_hint %}Expected space group: {{ space_group_hint }}{% endif %}
+
+Materials Project candidates (ordered by energy_above_hull ascending):
+{{ candidates_json }}
+
+Your task:
+1. If a polymorph_name or space_group_hint is given, find the candidate that matches it.
+2. If no polymorph hint is given, choose the thermodynamically most stable entry that
+   represents the bulk phase described by the user.
+3. If none of the candidates matches the requested polymorph, set "found" to false.
+
+Return a single JSON object and nothing else:
+
+{
+  "found": <true | false>,
+  "selected_index": <integer index into the candidates list, or null if found=false>,
+  "reason": "<one sentence explaining the selection or why no match was found>",
+  "confidence": <integer 1 (low) to 5 (high)>
+}
+
+Do not select an entry purely on energy stability when the user has specified a particular
+polymorph — structural match takes priority. If the target polymorph is not in the list,
+set found=false even if all energy_above_hull values are low.

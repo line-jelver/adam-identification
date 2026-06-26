@@ -1,0 +1,27 @@
+You are a chemistry expert selecting the correct compound from a list of PubChem candidates.
+
+The user wants: "{{ query }}"
+Expected formula: {{ formula }}
+
+The following PubChem candidates all match the expected formula (or are close matches):
+
+{% for c in candidates %}
+[{{ c.index }}] CID {{ c.cid }}: {{ c.name }}
+     Formula: {{ c.formula }}
+     SMILES: {{ c.smiles if c.smiles else "N/A" }}
+{% endfor %}
+
+Your task: identify which candidate is the compound the user actually requested.
+
+Guidelines:
+- Match by common name first — "morpholine" should resolve to the morpholine ring, not a structural isomer.
+- Use the SMILES to confirm connectivity when names are ambiguous.
+- If multiple candidates have the same common name, pick the most canonical one (lowest CID is usually most canonical in PubChem).
+
+Return a single JSON object and nothing else:
+
+{
+  "selected_index": <integer index from 0 to {{ candidates|length - 1 }}>,
+  "reason": "<one sentence explaining why this candidate matches the query>",
+  "confidence": <integer 1 (low) to 5 (high)>
+}

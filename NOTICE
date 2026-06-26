@@ -1,0 +1,24 @@
+adam-identification
+Copyright (c) 2026 Line Jelver and the ADaM collaboration
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CITATION REQUEST
+
+If you use this software in scientific work, please cite:
+
+  Line Jelver et al.
+  "Database-grounded language-model agents for robust atomistic
+  input-structure identification in solids and molecules"
+  [Journal, Year, DOI — to be added upon publication]
+
+A CITATION.cff file is included in this repository. GitHub displays a
+"Cite this repository" button automatically.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This software uses:
+  - Materials Project API (mp-api): data from materialsproject.org
+  - PubChem REST API: data from pubchem.ncbi.nlm.nih.gov
+  - ASE (Atomic Simulation Environment): doi.org/10.1088/1361-648X/aa680e
+  - pymatgen: doi.org/10.1016/j.commatsci.2012.10.028

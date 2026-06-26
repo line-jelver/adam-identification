@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use this software in scientific work, please cite the accompanying paper."
+type: software
+title: "adam-identification"
+abstract: >
+  Database-grounded LLM agent for identifying atomistic structures (crystals and molecules)
+  from natural-language descriptions. The agent extracts a chemical formula using a language
+  model, queries the Materials Project (crystals) or PubChem (molecules) for candidates,
+  and selects the correct phase or structural isomer. Returns ASE Atoms or pymatgen Structure
+  objects ready for first-principles calculations.
+authors:
+  - family-names: Jelver
+    given-names: Line
+    orcid: "https://orcid.org/0000-0000-0000-0000"
+    affiliation: "University of Southern Denmark"
+repository-code: "https://github.com/line-jelver/adam-identification"
+license: MIT
+version: "1.0.0"
+date-released: "2026-01-01"
+
+preferred-citation:
+  type: article
+  title: >
+    Database-grounded language-model agents for robust atomistic
+    input-structure identification in solids and molecules
+  authors:
+    - family-names: Jelver
+      given-names: Line
+    - name: "ADaM collaboration"
+  journal: "TBD"
+  year: 2026
+  doi: "TBD"
