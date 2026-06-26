@@ -48,7 +48,6 @@ del _lib
 
 from typing import TYPE_CHECKING, Literal
 
-from adam_identification.batch import batch_identify
 from adam_identification.exceptions import (
     AuthenticationError,
     DatabaseAPIError,
@@ -67,6 +66,30 @@ if TYPE_CHECKING:
     import pymatgen.core
 
 __version__ = "1.0.0"
+
+
+def batch_identify(
+    queries: list[str],
+    *,
+    provider: str = "gemini",
+    model: str | None = None,
+    mp_api_key: str | None = None,
+    concurrency: int = 5,
+    output: Literal["ase", "pymatgen", "material"] = "ase",
+) -> list:
+    """Identify multiple materials concurrently. See :mod:`adam_identification.batch`."""
+    from adam_identification.batch import batch_identify as _batch_identify
+
+    return _batch_identify(
+        queries,
+        provider=provider,
+        model=model,
+        mp_api_key=mp_api_key,
+        concurrency=concurrency,
+        output=output,
+    )
+
+
 __all__ = [
     "identify",
     "batch_identify",

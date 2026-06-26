@@ -11,19 +11,19 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Generic, TypeVar
 
 from adam_identification.exceptions import RateLimitError
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
+_T = TypeVar("_T")
 
 DEFAULT_RATE_LIMIT_DELAYS_S: tuple[float, ...] = (30.0, 60.0, 120.0, 120.0)
 
 
 @dataclass(frozen=True)
-class RetryResult[T]:
+class RetryResult(Generic[_T]):
     """Outcome of a retried async call with rate-limit retry accounting.
 
     Attributes:
@@ -32,16 +32,16 @@ class RetryResult[T]:
             success (0 when the first attempt succeeded).
     """
 
-    value: T
+    value: _T
     rate_limit_retries: int = 0
 
 
-async def retry_on_rate_limit[T](
-    coro_factory: Callable[[], Awaitable[T]],
+async def retry_on_rate_limit(
+    coro_factory: Callable[[], Awaitable[_T]],
     *,
     max_attempts: int = 5,
     delays_s: tuple[float, ...] = DEFAULT_RATE_LIMIT_DELAYS_S,
-) -> RetryResult[T]:
+) -> "RetryResult[_T]":
     """Call ``coro_factory`` with exponential backoff on :class:`RateLimitError`.
 
     Args:

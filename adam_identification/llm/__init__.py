@@ -12,7 +12,11 @@ from __future__ import annotations
 
 from adam_identification._config import ConfigurationError
 from adam_identification.llm.base import BaseLLM, LLMResponse, Message, TokenUsage
-from adam_identification.llm.retry import DEFAULT_RATE_LIMIT_DELAYS_S, RetryResult, retry_on_rate_limit
+from adam_identification.llm.retry import (
+    DEFAULT_RATE_LIMIT_DELAYS_S,
+    RetryResult,
+    retry_on_rate_limit,
+)
 
 __all__ = [
     "get_provider",

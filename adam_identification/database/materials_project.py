@@ -25,10 +25,10 @@ from adam_identification.models import (
     MaterialsProjectProperties,
 )
 
-MPRester: Any
+MPRester: Any = None
 try:
     from mp_api.client import MPRester  # type: ignore[import-untyped,no-redef]
-except ImportError:  # pragma: no cover
+except Exception:  # ImportError or AttributeError from pyOpenSSL on some systems
     MPRester = None
 
 MP_SUMMARY_FIELDS: list[str] = [

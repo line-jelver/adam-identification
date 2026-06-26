@@ -26,10 +26,6 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Literal
 
-from adam_identification.database.materials_project import MaterialsProjectClient
-from adam_identification.database.pubchem import PubChemClient
-from adam_identification.identifier import MaterialIdentifier
-from adam_identification.llm import get_provider
 from adam_identification.models import Material
 
 if TYPE_CHECKING:
@@ -82,6 +78,11 @@ async def batch_identify_async(
         List of :class:`~adam_identification.models.Material` or
         :class:`Exception` instances, one per query (order preserved).
     """
+    from adam_identification.database.materials_project import MaterialsProjectClient
+    from adam_identification.database.pubchem import PubChemClient
+    from adam_identification.identifier import MaterialIdentifier
+    from adam_identification.llm import get_provider
+
     llm = get_provider(provider, model)
     mp_client = MaterialsProjectClient(api_key=mp_api_key)
     pubchem_client = PubChemClient()

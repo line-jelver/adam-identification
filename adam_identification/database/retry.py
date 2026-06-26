@@ -10,11 +10,14 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 import httpx
 
 from adam_identification.exceptions import DatabaseAPIError
 from adam_identification.llm.retry import DEFAULT_RATE_LIMIT_DELAYS_S
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +39,7 @@ PUBCHEM_TRANSIENT_MARKERS: tuple[str, ...] = (
 
 
 @dataclass(frozen=True)
-class DbRetryResult[T]:
+class DbRetryResult(Generic[_T]):
     """Outcome of a retried database API call.
 
     Attributes:
@@ -44,7 +47,7 @@ class DbRetryResult[T]:
         transient_retries: Number of transient-error recoveries before success.
     """
 
-    value: T
+    value: _T
     transient_retries: int = 0
 
 
@@ -65,13 +68,13 @@ def is_transient_database_error(exc: BaseException) -> bool:
     return False
 
 
-def retry_on_transient_error[T](
-    fn: Callable[[], T],
+def retry_on_transient_error(
+    fn: Callable[[], _T],
     *,
     max_attempts: int = DEFAULT_DB_MAX_ATTEMPTS,
     delays_s: tuple[float, ...] = DEFAULT_RATE_LIMIT_DELAYS_S,
     label: str = "Database API",
-) -> DbRetryResult[T]:
+) -> "DbRetryResult[_T]":
     """Call ``fn`` with exponential backoff on transient database errors.
 
     Args:
