@@ -56,31 +56,6 @@ def candidates_to_selection_json(candidates: list[Material]) -> list[dict[str, A
     return out
 
 
-def single_candidate_selection(
-    candidates: list[Material],
-    polymorph_name: str | None,
-    space_group_hint: str | None,
-) -> dict[str, Any] | None:
-    """Return an auto-selection dict when no LLM call is required.
-
-    Args:
-        candidates: MP candidate materials from the current search pass.
-        polymorph_name: Target polymorph hint from formula extraction.
-        space_group_hint: Expected space group hint from formula extraction.
-
-    Returns:
-        Selection dict when there is exactly one candidate and no polymorph
-        constraints; otherwise ``None``.
-    """
-    if len(candidates) == 1 and polymorph_name is None and space_group_hint is None:
-        return {
-            "found": True,
-            "selected_index": 0,
-            "reason": "Single candidate, no polymorph constraint.",
-            "confidence": 5,
-        }
-    return None
-
 
 def parse_phase_selection_response(
     data: dict[str, Any],
@@ -203,12 +178,19 @@ def parse_molecule_selection_response(
         n_candidates: Number of candidates shown to the LLM.
 
     Returns:
-        Dict with keys ``selected_index``, ``reason``, ``confidence``.
+        Dict with keys ``found``, ``selected_index``, ``reason``, ``confidence``.
     """
+    found = bool(data.get("found", True))
     selected_index = data.get("selected_index")
-    idx = max(0, min(int(selected_index), n_candidates - 1)) if selected_index is not None else 0
+    if found:
+        # Clamp the index to the valid range; default to 0 if the LLM omitted it.
+        raw = int(selected_index) if selected_index is not None else 0
+        selected_index = max(0, min(raw, n_candidates - 1))
+    else:
+        selected_index = None
     return {
-        "selected_index": idx,
+        "found": found,
+        "selected_index": selected_index,
         "reason": str(data.get("reason", "")),
         "confidence": parse_confidence_level(data.get("confidence")),
     }

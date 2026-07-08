@@ -14,9 +14,9 @@ from adam_identification._phase_lookup import (
     WIDE_MAX_RESULTS,
     candidates_to_selection_json,
     formulas_match,
+    parse_molecule_selection_response,
     parse_phase_selection_response,
     polymorph_not_found_message,
-    single_candidate_selection,
 )
 
 
@@ -63,19 +63,6 @@ def _make_material(
 def test_search_limits() -> None:
     assert INITIAL_MAX_RESULTS == 20
     assert WIDE_MAX_RESULTS == 50
-
-
-def test_single_candidate_selection_without_hints() -> None:
-    candidates = [_make_material("mp-1", "Si", "Fd-3m")]
-    result = single_candidate_selection(candidates, None, None)
-    assert result is not None
-    assert result["found"] is True
-    assert result["selected_index"] == 0
-
-
-def test_single_candidate_selection_skipped_with_polymorph_hint() -> None:
-    candidates = [_make_material("mp-1", "C", "P6_3/mmc")]
-    assert single_candidate_selection(candidates, "diamond", "Fd-3m") is None
 
 
 def test_parse_phase_selection_respects_found_false() -> None:
@@ -129,3 +116,18 @@ def test_polymorph_not_found_message_includes_hints() -> None:
     assert "diamond" in msg
     assert "Fd-3m" in msg
     assert "50 candidates" in msg
+
+
+def test_parse_molecule_selection_found_false() -> None:
+    data = {"found": False, "selected_index": None, "reason": "ambiguous", "confidence": 2}
+    result = parse_molecule_selection_response(data, n_candidates=3)
+    assert result["found"] is False
+    assert result["selected_index"] is None
+    assert result["confidence"] == 2
+
+
+def test_parse_molecule_selection_backward_compat_no_found_key() -> None:
+    data = {"selected_index": 1, "reason": "match", "confidence": 4}
+    result = parse_molecule_selection_response(data, n_candidates=3)
+    assert result["found"] is True
+    assert result["selected_index"] == 1
