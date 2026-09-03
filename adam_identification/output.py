@@ -8,7 +8,7 @@ Example::
     from adam_identification import identify
     from adam_identification.output import to_ase, to_pymatgen
 
-    material = identify("silicon", output="material")
+    material = identify("silicon", model="gemini-3.1-pro-preview", output="material")
     atoms = to_ase(material)            # ase.Atoms with pbc=True
     structure = to_pymatgen(material)   # pymatgen.core.IStructure
 """
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     import pymatgen.core
 
 
-def to_ase(material: Material) -> "ase.Atoms":
+def to_ase(material: Material) -> ase.Atoms:
     """Convert a :class:`~adam_identification.models.Material` to an ``ase.Atoms`` object.
 
     For crystals: ``pbc=True``, ``cell`` set to the 3×3 lattice matrix,
@@ -45,9 +45,7 @@ def to_ase(material: Material) -> "ase.Atoms":
     try:
         from ase import Atoms
     except ImportError as exc:
-        raise ImportError(
-            "ase is required for to_ase(). Install with: pip install ase"
-        ) from exc
+        raise ImportError("ase is required for to_ase(). Install with: pip install ase") from exc
 
     struct = material.structure
     symbols = [p.element for p in struct.atomic_positions]
@@ -70,7 +68,7 @@ def to_ase(material: Material) -> "ase.Atoms":
         raise TypeError(f"Unknown structure type: {type(struct)}")
 
 
-def to_pymatgen(material: Material) -> "pymatgen.core.IStructure | pymatgen.core.IMolecule":
+def to_pymatgen(material: Material) -> pymatgen.core.IStructure | pymatgen.core.IMolecule:
     """Convert a :class:`~adam_identification.models.Material` to a pymatgen object.
 
     For crystals: returns a ``pymatgen.core.Structure`` (periodic, with

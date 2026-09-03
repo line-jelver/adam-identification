@@ -2,18 +2,17 @@
 
 Usage::
 
-    adam-identify "silicon"
-    adam-identify "glucose" --output pymatgen --save glucose.xyz
+    adam-identify "silicon" --model gemini-3.1-pro-preview
+    adam-identify "glucose" --model gemini-3.1-pro-preview --save glucose.xyz
     adam-identify "BCC iron" --provider anthropic --model claude-haiku-4-5-20251001
-    adam-identify --batch queries.txt --concurrency 10 --save-dir results/
+    adam-identify --batch queries.txt --model gemini-3.1-pro-preview --save-dir results/
     adam-identify --list-providers
 """
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -34,7 +33,7 @@ console = Console()
 err_console = Console(stderr=True)
 
 _PROVIDERS = {
-    "gemini": "Google Gemini — set GOOGLE_API_KEY",
+    "google": "Google Gemini — set GOOGLE_API_KEY",
     "openai": "OpenAI — set OPENAI_API_KEY",
     "anthropic": "Anthropic Claude — set ANTHROPIC_API_KEY",
     "openrouter": "OpenRouter (300+ models) — set OPENROUTER_API_KEY",
@@ -61,35 +60,39 @@ def _list_providers_callback(value: bool) -> None:
 @app.command()
 def identify_cmd(
     query: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(help="Natural-language material description, e.g. 'silicon' or 'caffeine'."),
     ] = None,
     batch: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--batch", "-b", help="Text file with one query per line (batch mode)."),
     ] = None,
     provider: Annotated[
         str,
-        typer.Option("--provider", "-p", help="LLM provider: gemini, openai, anthropic, openrouter."),
-    ] = "gemini",
-    model: Annotated[
-        Optional[str],
-        typer.Option("--model", "-m", help="Model slug (uses provider default if omitted)."),
-    ] = None,
-    output: Annotated[
-        str,
         typer.Option(
-            "--output",
-            "-o",
-            help="Output format: info (default), ase, pymatgen, json.",
+            "--provider",
+            "-p",
+            help="LLM provider: google, openai, anthropic, openrouter.",
         ),
-    ] = "info",
+    ] = "google",
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help="Model slug (required for identification). There is no default.",
+        ),
+    ] = None,
     save: Annotated[
-        Optional[Path],
-        typer.Option("--save", "-s", help="Save structure to file (CIF/XYZ/POSCAR detected by extension)."),
+        Path | None,
+        typer.Option(
+            "--save",
+            "-s",
+            help="Save structure to file (CIF/XYZ/POSCAR detected by extension).",
+        ),
     ] = None,
     save_dir: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--save-dir", help="Directory for batch output files (one per query)."),
     ] = None,
     concurrency: Annotated[
@@ -97,19 +100,26 @@ def identify_cmd(
         typer.Option("--concurrency", "-c", help="Max concurrent requests in batch mode."),
     ] = 5,
     mp_api_key: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--mp-api-key", help="Materials Project API key (overrides env var)."),
     ] = None,
+    minimal_interaction: Annotated[
+        bool,
+        typer.Option(
+            "--minimal-interaction",
+            help="Always select a candidate; flag uncertain choices with needs_review.",
+        ),
+    ] = False,
     verbose: Annotated[
         bool,
-        typer.Option("--verbose", "-v", help="Show DEBUG-level logs."),
+        typer.Option("--verbose", "-v", help="Show DEBUG logs and the full candidate list."),
     ] = False,
     version: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option("--version", callback=_version_callback, is_eager=True, help="Show version."),
     ] = None,
     list_providers: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option(
             "--list-providers",
             callback=_list_providers_callback,
@@ -122,11 +132,11 @@ def identify_cmd(
 
     Single query example:
 
-        adam-identify "silicon"
+        adam-identify "silicon" --model gemini-3.1-pro-preview
 
     Batch example (one query per line in queries.txt):
 
-        adam-identify --batch queries.txt --concurrency 5
+        adam-identify --batch queries.txt --model gemini-3.1-pro-preview
 
     """
     configure_logging(verbose=verbose)
@@ -135,15 +145,21 @@ def identify_cmd(
         err_console.print("[red]Error:[/red] Provide a QUERY argument or --batch FILE.")
         raise typer.Exit(1)
 
+    if not model or not model.strip():
+        from adam_identification.llm import MISSING_MODEL_MESSAGE
+
+        err_console.print(f"[red]Error:[/red] {MISSING_MODEL_MESSAGE}")
+        raise typer.Exit(1)
+
     if batch is not None:
         _run_batch(
             batch_file=batch,
             provider=provider,
             model=model,
-            output=output,
             save_dir=save_dir,
             concurrency=concurrency,
             mp_api_key=mp_api_key,
+            minimal_interaction=minimal_interaction,
         )
     else:
         assert query is not None
@@ -151,54 +167,67 @@ def identify_cmd(
             query=query,
             provider=provider,
             model=model,
-            output=output,
             save=save,
             mp_api_key=mp_api_key,
+            minimal_interaction=minimal_interaction,
+            verbose=verbose,
         )
 
 
 def _run_single(
     query: str,
     provider: str,
-    model: str | None,
-    output: str,
+    model: str,
     save: Path | None,
     mp_api_key: str | None,
+    minimal_interaction: bool,
+    verbose: bool,
 ) -> None:
     from adam_identification.database.materials_project import MaterialsProjectClient
     from adam_identification.database.pubchem import PubChemClient
+    from adam_identification.exceptions import (
+        AmbiguousIdentificationError,
+        ClarificationNeededError,
+    )
     from adam_identification.identifier import MaterialIdentifier
     from adam_identification.llm import get_provider as _get_provider
+    from adam_identification.trace import IdentificationTrace
 
     with console.status(f"[bold]Identifying:[/bold] {query}"):
         try:
             llm = _get_provider(provider, model)
             mp_client = MaterialsProjectClient(api_key=mp_api_key)
             pubchem_client = PubChemClient()
-            identifier = MaterialIdentifier(llm, mp_client, pubchem_client)
-            material = identifier.identify(query)
+            identifier = MaterialIdentifier(
+                llm, mp_client, pubchem_client, minimal_interaction=minimal_interaction
+            )
+            material, trace = identifier.identify(query, return_trace=True)
+        except AmbiguousIdentificationError as exc:
+            _print_ambiguous(exc, verbose=verbose)
+            raise typer.Exit(1) from exc
+        except ClarificationNeededError as exc:
+            err_console.print(f"[yellow]Clarification needed:[/yellow] {exc}")
+            raise typer.Exit(1) from exc
         except Exception as exc:
             err_console.print(f"[red]Error:[/red] {exc}")
             raise typer.Exit(1) from exc
 
-    _print_material(material, query)
+    if not isinstance(trace, IdentificationTrace):
+        trace = IdentificationTrace(query=query, domain="crystal")
+    _print_material(material, query, trace=trace)
 
     if save is not None:
         _save_material(material, save)
-
-    if output in ("ase", "pymatgen"):
-        # Used programmatically; not useful in CLI-only context but allow as a flag.
-        pass
 
 
 def _run_batch(
     batch_file: Path,
     provider: str,
-    model: str | None,
-    output: str,
+    model: str,
     save_dir: Path | None,
     concurrency: int,
     mp_api_key: str | None,
+    minimal_interaction: bool,
 ) -> None:
     from adam_identification.batch import batch_identify
     from adam_identification.models import Material
@@ -207,23 +236,23 @@ def _run_batch(
         err_console.print(f"[red]Error:[/red] Batch file not found: {batch_file}")
         raise typer.Exit(1)
 
-    queries = [
-        line.strip() for line in batch_file.read_text().splitlines() if line.strip()
-    ]
+    queries = [line.strip() for line in batch_file.read_text().splitlines() if line.strip()]
     if not queries:
         err_console.print("[red]Error:[/red] Batch file contains no queries.")
         raise typer.Exit(1)
 
-    console.print(f"Batch: [cyan]{len(queries)}[/cyan] queries, concurrency=[cyan]{concurrency}[/cyan]")
+    console.print(
+        f"Batch: [cyan]{len(queries)}[/cyan] queries, concurrency=[cyan]{concurrency}[/cyan]"
+    )
 
-    raw_output = "material"
     results = batch_identify(
         queries,
         provider=provider,
         model=model,
         mp_api_key=mp_api_key,
         concurrency=concurrency,
-        output=raw_output,
+        output="material",
+        minimal_interaction=minimal_interaction,
     )
 
     if save_dir is not None:
@@ -256,7 +285,7 @@ def _run_batch(
             if save_dir is not None:
                 safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in q)
                 ext = ".cif" if mat.material_type == "crystal" else ".xyz"
-                _save_material(mat, save_dir / f"{i+1:03d}_{safe_name}{ext}")
+                _save_material(mat, save_dir / f"{i + 1:03d}_{safe_name}{ext}")
 
     console.print(table)
     console.print(
@@ -268,7 +297,57 @@ def _run_batch(
         raise typer.Exit(1)
 
 
-def _print_material(material: "object", query: str) -> None:
+def _print_ambiguous(exc: object, *, verbose: bool = False) -> None:
+    """Print a Rich table of ambiguous identification options."""
+    from adam_identification.exceptions import AmbiguousIdentificationError
+
+    if not isinstance(exc, AmbiguousIdentificationError):
+        err_console.print(f"[red]Error:[/red] {exc}")
+        return
+
+    err_console.print("[yellow]Ambiguous identification[/yellow]")
+    if exc.user_message:
+        err_console.print(exc.user_message)
+
+    shown = exc.candidates_for_display(verbose=verbose)
+    table = Table(title="Candidate options", show_header=True)
+    if exc.domain == "crystal":
+        table.add_column("MP ID", style="cyan")
+        table.add_column("Formula")
+        table.add_column("Space group")
+        table.add_column("Sites", justify="right")
+        for candidate in shown:
+            table.add_row(
+                str(candidate.get("mp_id") or ""),
+                str(candidate.get("formula") or ""),
+                str(candidate.get("space_group") or ""),
+                str(candidate.get("nsites") if candidate.get("nsites") is not None else ""),
+            )
+    else:
+        table.add_column("Name")
+        table.add_column("CID", style="cyan")
+        table.add_column("Formula")
+        for candidate in shown:
+            table.add_row(
+                str(candidate.get("name") or ""),
+                str(candidate.get("cid") or ""),
+                str(candidate.get("formula") or ""),
+            )
+    err_console.print(table)
+    if len(shown) < len(exc.candidates):
+        err_console.print(
+            f"[dim]Showing {len(shown)} of {len(exc.candidates)} database entries. "
+            "Use --verbose for the full list.[/dim]"
+        )
+
+    if exc.suggested_candidates:
+        err_console.print("[bold]Suggested follow-up queries:[/bold]")
+        for suggestion in exc.suggested_candidates:
+            err_console.print(f"  - {suggestion.get('suggested_query', '')}")
+    err_console.print("Resume with IdentificationSession, or re-run with a more specific query.")
+
+
+def _print_material(material: object, query: str, *, trace: object | None = None) -> None:
     from adam_identification.models import Material
 
     if not isinstance(material, Material):
@@ -293,10 +372,12 @@ def _print_material(material: "object", query: str) -> None:
         eah_str = ""
         bg_str = ""
         if props is not None:
-            if getattr(props, "energy_above_hull", None) is not None:
-                eah_str = f"\n  Energy above hull: {props.energy_above_hull:.3f} eV/atom"
-            if getattr(props, "band_gap", None) is not None:
-                bg_str = f"\n  Band gap: {props.band_gap:.2f} eV"
+            eah = getattr(props, "energy_above_hull", None)
+            if isinstance(eah, int | float):
+                eah_str = f"\n  Energy above hull: {eah:.3f} eV/atom"
+            bg = getattr(props, "band_gap", None)
+            if isinstance(bg, int | float):
+                bg_str = f"\n  Band gap: {bg:.2f} eV"
 
         text = (
             f"[bold green]Crystal: {material.chemical_formula}[/bold green]\n"
@@ -321,8 +402,27 @@ def _print_material(material: "object", query: str) -> None:
 
     console.print(Panel(text, title=f"[dim]{query}[/dim]", expand=False))
 
+    needs_review = bool(getattr(trace, "needs_review", False))
+    if needs_review:
+        reason = str(getattr(trace, "selection_reason", "") or "").strip()
+        suggestions = getattr(trace, "suggested_candidates", None) or []
+        alt_parts = [
+            str(item.get("suggested_query", "")).strip()
+            for item in suggestions
+            if isinstance(item, dict) and item.get("suggested_query")
+        ]
+        review_text = (
+            "[yellow]Needs review[/yellow]: this pick used a conventional assumption "
+            "because the query did not uniquely identify one candidate."
+        )
+        if reason:
+            review_text += f"\n  {reason}"
+        if alt_parts:
+            review_text += "\n  Alternatives: " + "; ".join(alt_parts)
+        console.print(Panel(review_text, title="minimal-interaction", expand=False))
 
-def _save_material(material: "object", path: Path) -> None:
+
+def _save_material(material: object, path: Path) -> None:
     from adam_identification.models import Material
     from adam_identification.output import to_ase
 
@@ -348,6 +448,11 @@ def _save_material(material: "object", path: Path) -> None:
             fmt = None  # let ASE auto-detect
         ase_io.write(str(path), atoms, format=fmt)
         console.print(f"  Saved: [cyan]{path}[/cyan]")
+        if ext == ".cif":
+            console.print(
+                "  [dim]Note: ASE exports the primitive cell (often as P1), "
+                "not the conventional crystallographic cell.[/dim]"
+            )
     except Exception as exc:
         err_console.print(f"[yellow]Warning:[/yellow] Could not save to {path}: {exc}")
 
