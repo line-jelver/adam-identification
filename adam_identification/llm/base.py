@@ -1,8 +1,14 @@
 """Base interface and shared types for LLM providers.
 
-All agent code targets this interface. Provider-specific modules live in
-``adam_identification/llm/providers/`` and are only instantiated through
+All agent code should target this interface. Provider-specific modules live in
+``adam_identification/llm/providers`` and are only instantiated through
 :func:`~adam_identification.llm.get_provider`.
+
+Usage:
+    from adam_identification.llm import get_provider
+
+    provider = get_provider("google", model="gemini-2.5-flash")
+    response = await provider.complete_single("Identify silicon")
 """
 
 from __future__ import annotations
@@ -19,7 +25,7 @@ class Message:
     """A single chat message.
 
     Attributes:
-        role: Message role — ``"system"``, ``"user"``, or ``"assistant"``.
+        role: Message role, usually ``system``, ``user``, or ``assistant``.
         content: Message text content.
     """
 
@@ -38,19 +44,19 @@ class TokenUsage:
 
 @dataclass(frozen=True)
 class LLMResponse:
-    """Normalised response returned from all providers.
+    """Normalized response returned from all providers.
 
     Attributes:
         content: Response text.
         token_usage: Token accounting where available.
         model: Model used to produce the response.
-        rate_limit_retries: Number of rate-limit backoff retries consumed.
     """
 
     content: str
     token_usage: TokenUsage = field(default_factory=TokenUsage)
     model: str = ""
     rate_limit_retries: int = 0
+    """Rate-limit backoff retries consumed before this response was obtained."""
 
 
 class BaseLLM(ABC):
@@ -68,17 +74,7 @@ class BaseLLM(ABC):
         temperature: float | None = None,
         max_tokens: int = 8000,
     ) -> LLMResponse:
-        """Send messages with automatic backoff on provider rate limits.
-
-        Args:
-            messages: Ordered conversation messages.
-            response_format: ``"text"`` or ``"json"``.
-            temperature: Optional sampling temperature.
-            max_tokens: Maximum completion length.
-
-        Returns:
-            Normalised :class:`LLMResponse`.
-        """
+        """Send messages with automatic backoff on provider rate limits."""
 
         async def _call() -> LLMResponse:
             return await self._complete_once(
@@ -94,7 +90,7 @@ class BaseLLM(ABC):
             content=resp.content,
             token_usage=resp.token_usage,
             model=resp.model,
-            rate_limit_retries=outcome.rate_limit_retries,
+            rate_limit_retries=outcome.api_retries,
         )
 
     @abstractmethod
@@ -110,7 +106,7 @@ class BaseLLM(ABC):
 
         Args:
             messages: Ordered conversation messages.
-            response_format: ``"text"`` or ``"json"``.
+            response_format: ``text`` or ``json``.
             temperature: Optional sampling temperature.
             max_tokens: Maximum completion length.
         """
@@ -124,18 +120,7 @@ class BaseLLM(ABC):
         temperature: float | None = None,
         max_tokens: int = 8000,
     ) -> LLMResponse:
-        """Convenience wrapper for a single user prompt.
-
-        Args:
-            prompt: User prompt text.
-            system_prompt: Optional system instruction.
-            response_format: ``"text"`` or ``"json"``.
-            temperature: Optional sampling temperature.
-            max_tokens: Maximum completion length.
-
-        Returns:
-            Normalised :class:`LLMResponse`.
-        """
+        """Convenience wrapper for one user prompt."""
         messages: list[Message] = []
         if system_prompt:
             messages.append(Message(role="system", content=system_prompt))

@@ -1,7 +1,7 @@
-"""Anthropic provider implementation for adam-identification.
+"""Anthropic provider implementation for ADaM.
 
-JSON mode appends a suffix to the system field instructing the model to
-respond with valid JSON only (Anthropic API constraint).
+JSON mode appends the suffix from ``adam/prompts/templates/llm/anthropic_json_suffix.j2``
+to the system field (Anthropic API constraint).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import httpx
 from adam_identification._config import ConfigurationError, settings
 from adam_identification._prompts import PromptLoader
 from adam_identification.llm.base import BaseLLM, LLMResponse, Message, TokenUsage
-from adam_identification.exceptions import (
+from adam_identification.llm.exceptions import (
     AuthenticationError,
     InvalidResponseError,
     ProviderUnavailableError,
@@ -25,13 +25,9 @@ _ANTHROPIC_VERSION = "2023-06-01"
 
 
 class AnthropicProvider(BaseLLM):
-    """Provider for Anthropic Claude models.
+    """Provider for Anthropic Claude models."""
 
-    Args:
-        model: Claude model slug, e.g. ``"claude-sonnet-4-6"``.
-    """
-
-    def __init__(self, model: str = "claude-haiku-4-5-20251001") -> None:
+    def __init__(self, model: str = "claude-3-5-haiku-20241022") -> None:
         if not settings.anthropic_api_key:
             raise ConfigurationError("ANTHROPIC_API_KEY is not set. Add it to your .env file.")
         self._api_key = settings.anthropic_api_key

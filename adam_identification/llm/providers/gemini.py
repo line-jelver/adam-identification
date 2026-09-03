@@ -1,4 +1,4 @@
-"""Google Gemini provider implementation for adam-identification."""
+"""Google Gemini provider implementation for ADaM."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import httpx
 
 from adam_identification._config import ConfigurationError, settings
 from adam_identification.llm.base import BaseLLM, LLMResponse, Message, TokenUsage
-from adam_identification.exceptions import (
+from adam_identification.llm.exceptions import (
     AuthenticationError,
     InvalidResponseError,
     ProviderUnavailableError,
@@ -21,21 +21,24 @@ _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 class GeminiProvider(BaseLLM):
     """Provider for Google Gemini models.
 
-    Default sampling temperature is ``1.0`` (applied when ``temperature=None``),
-    matching the Gemini API default and the effective default of other providers.
-    Pass ``temperature=0.0`` explicitly for deterministic outputs.
+    Default sampling temperature is ``1.0`` (applied when ``temperature=None``
+    is passed to :meth:`_complete_once`), matching the Gemini API default and
+    the effective default of other ADaM providers (Anthropic, OpenAI).  Pass
+    ``temperature=0.0`` explicitly for fully deterministic outputs.
 
     Args:
-        model: Gemini model slug, e.g. ``"gemini-2.5-flash"``.
+        model: Gemini model slug (e.g. ``"gemini-2.5-flash-lite"``).
         disable_thinking: When ``True``, add
             ``thinkingConfig: {thinkingBudget: 0}`` to the generation config,
-            suppressing extended reasoning traces. Only effective for
-            thinking-capable models; silently ignored by others.
+            preventing the model from producing reasoning traces.  Only
+            effective for thinking-capable models such as ``gemini-2.5-flash``
+            and ``gemini-2.5-pro``; silently ignored by non-thinking models
+            (e.g. ``gemini-2.5-flash-lite``).
     """
 
     def __init__(
         self,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-2.5-flash-lite",
         *,
         disable_thinking: bool = False,
     ) -> None:
@@ -46,10 +49,11 @@ class GeminiProvider(BaseLLM):
         self._disable_thinking = disable_thinking
 
     def _url(self) -> str:
+        # Key is passed as a header (x-goog-api-key), NOT as a URL query param,
+        # so it never appears in logs or HTTP access records.
         return f"{_GEMINI_BASE_URL}/{self._model}:generateContent"
 
     def _auth_headers(self) -> dict[str, str]:
-        # Pass API key as a header so it never appears in URL logs.
         return {"x-goog-api-key": self._api_key}
 
     @staticmethod

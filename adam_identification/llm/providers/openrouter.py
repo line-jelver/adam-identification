@@ -1,4 +1,4 @@
-"""OpenRouter provider implementation for adam-identification."""
+"""OpenRouter provider implementation for ADaM."""
 
 from __future__ import annotations
 
@@ -9,16 +9,9 @@ _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 class OpenRouterProvider(OpenAIProvider):
-    """OpenRouter provider using the OpenAI-compatible API surface.
+    """OpenRouter provider using the OpenAI-compatible API surface."""
 
-    Provides access to 300+ models including DeepSeek, Kimi, Qwen, and others.
-    See https://openrouter.ai/models for available model slugs.
-
-    Args:
-        model: OpenRouter model slug, e.g. ``"deepseek/deepseek-chat-v3-5"``.
-    """
-
-    def __init__(self, model: str = "deepseek/deepseek-chat-v3-5") -> None:
+    def __init__(self, model: str = "meta-llama/llama-3.3-70b-instruct:free") -> None:
         if not settings.openrouter_api_key:
             raise ConfigurationError("OPENROUTER_API_KEY is not set. Add it to your .env file.")
         self._api_key = settings.openrouter_api_key
@@ -27,6 +20,6 @@ class OpenRouterProvider(OpenAIProvider):
 
     def _headers(self) -> dict[str, str]:
         headers = super()._headers()
-        headers["HTTP-Referer"] = "https://github.com/line-jelver/adam-identification"
-        headers["X-Title"] = "adam-identification"
+        headers["HTTP-Referer"] = "https://github.com/line-jelver/ADaM"
+        headers["X-Title"] = "ADaM"
         return headers

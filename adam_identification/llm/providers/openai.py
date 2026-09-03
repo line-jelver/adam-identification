@@ -1,4 +1,4 @@
-"""OpenAI provider implementation for adam-identification."""
+"""OpenAI provider implementation for ADaM."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import httpx
 
 from adam_identification._config import ConfigurationError, settings
 from adam_identification.llm.base import BaseLLM, LLMResponse, Message, TokenUsage
-from adam_identification.exceptions import (
+from adam_identification.llm.exceptions import (
     AuthenticationError,
     InvalidResponseError,
     ProviderUnavailableError,
@@ -17,12 +17,16 @@ from adam_identification.exceptions import (
 
 _OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
-# Models that reject non-default explicit temperature.
+# OpenAI models that reject non-default explicit temperature (verified via live API).
+_OPENAI_FIXED_TEMPERATURE_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
 _OPENAI_NO_EXPLICIT_TEMPERATURE_PREFIXES: tuple[str, ...] = ("gpt-5.5", "o1", "o3")
 
 
 def openai_model_supports_explicit_temperature(model: str) -> bool:
     """Return whether the OpenAI API accepts arbitrary explicit ``temperature`` values.
+
+    ``gpt-5.5`` only supports the default temperature (1.0); other ``gpt-5.4*``
+    slugs such as ``gpt-5.4-mini`` accept explicit values (e.g. 0.0).
 
     Args:
         model: OpenAI model slug.
@@ -31,17 +35,16 @@ def openai_model_supports_explicit_temperature(model: str) -> bool:
         ``False`` when the API is expected to ignore or reject explicit temperature.
     """
     model_lower = model.lower()
-    return not any(model_lower.startswith(prefix) for prefix in _OPENAI_NO_EXPLICIT_TEMPERATURE_PREFIXES)
+    if model_lower in _OPENAI_FIXED_TEMPERATURE_MODELS:
+        return False
+    blocked = _OPENAI_NO_EXPLICIT_TEMPERATURE_PREFIXES
+    return not any(model_lower.startswith(prefix) for prefix in blocked)
 
 
 class OpenAIProvider(BaseLLM):
-    """Provider for OpenAI chat-completions models.
+    """Provider for OpenAI chat-completions models."""
 
-    Args:
-        model: OpenAI model slug, e.g. ``"gpt-5.4-mini"``.
-    """
-
-    def __init__(self, model: str = "gpt-5.4-mini") -> None:
+    def __init__(self, model: str = "gpt-5.4-nano") -> None:
         if not settings.openai_api_key:
             raise ConfigurationError("OPENAI_API_KEY is not set. Add it to your .env file.")
         self._api_key = settings.openai_api_key
