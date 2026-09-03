@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
+from adam_identification._followup import format_followup_queries
+from adam_identification._phase_lookup import (
+    INITIAL_MAX_RESULTS,
+    WIDE_MAX_RESULTS,
+    candidates_to_selection_json,
+    material_to_scoring_payload,
+    parse_molecule_selection_response,
+    parse_phase_selection_response,
+    phase_not_found_message,
+)
 from adam_identification.models import (
     AtomicPosition,
     CrystalStructure,
     Material,
     MaterialSource,
     MaterialsProjectProperties,
-)
-from adam_identification._phase_lookup import (
-    INITIAL_MAX_RESULTS,
-    WIDE_MAX_RESULTS,
-    candidates_to_selection_json,
-    formulas_match,
-    parse_molecule_selection_response,
-    parse_phase_selection_response,
-    polymorph_not_found_message,
 )
 
 
@@ -37,7 +38,9 @@ def _make_material(
             "beta": 90.0,
             "gamma": 90.0,
         },
-        atomic_positions=[AtomicPosition(element="Si", position=(0.0, 0.0, 0.0))],
+        atomic_positions=[
+            AtomicPosition(element="Si", position=(0.0, 0.0, 0.0)),
+        ],
         crystal_system="Cubic",
         space_group=space_group,
         nelements=1,
@@ -60,30 +63,56 @@ def _make_material(
     )
 
 
-def test_search_limits() -> None:
+def test_search_limits_match_production_policy() -> None:
     assert INITIAL_MAX_RESULTS == 20
     assert WIDE_MAX_RESULTS == 50
 
 
-def test_parse_phase_selection_respects_found_false() -> None:
+def test_parse_phase_selection_response_not_found() -> None:
     parsed = parse_phase_selection_response(
-        {"found": False, "selected_index": 3, "reason": "no match"},
+        {"decision": "not_found", "selected_index": None, "selection_reason": "no match"},
         n_candidates=10,
     )
-    assert parsed["found"] is False
-    assert parsed["selected_index"] == 3
+    assert parsed["decision"] == "not_found"
+    assert parsed["selected_index"] is None
+    assert parsed["selection_reason"] == "no match"
 
 
-def test_parse_phase_selection_clamps_index() -> None:
+def test_parse_phase_selection_response_select_clamps_index() -> None:
     parsed = parse_phase_selection_response(
-        {"found": True, "selected_index": 99, "reason": "picked"},
+        {"decision": "select", "selected_index": 99, "selection_reason": "picked"},
         n_candidates=5,
     )
-    assert parsed["found"] is True
+    assert parsed["decision"] == "select"
     assert parsed["selected_index"] == 4
 
 
-def test_candidates_to_selection_json_compact_payload() -> None:
+def test_parse_phase_selection_response_ambiguous() -> None:
+    parsed = parse_phase_selection_response(
+        {
+            "decision": "ambiguous",
+            "selected_index": None,
+            "selection_reason": "multiple phases",
+            "user_message": "Please specify the polymorph.",
+            "suggested_candidates": [{"index": 0, "suggested_query": "rutile TiO2"}],
+        },
+        n_candidates=3,
+    )
+    assert parsed["decision"] == "ambiguous"
+    assert parsed["selected_index"] is None
+    assert parsed["user_message"] == "Please specify the polymorph."
+    assert len(parsed["suggested_candidates"]) == 1
+
+
+def test_parse_phase_selection_response_unknown_decision_defaults_to_not_found() -> None:
+    parsed = parse_phase_selection_response(
+        {"decision": "bogus", "selected_index": 0},
+        n_candidates=3,
+    )
+    assert parsed["decision"] == "not_found"
+
+
+def test_candidates_to_selection_json_uses_compact_payload() -> None:
     payload = candidates_to_selection_json([_make_material("mp-66", "C", "Fd-3m")])
     assert payload == [
         {
@@ -99,35 +128,119 @@ def test_candidates_to_selection_json_compact_payload() -> None:
     ]
 
 
-def test_formulas_match_same() -> None:
-    assert formulas_match("H2O", "H2O") is True
+def test_material_to_scoring_payload_includes_geometry() -> None:
+    payload = material_to_scoring_payload(_make_material("mp-149", "Si", "Fd-3m"))
+    assert payload["material_id"] == "mp-149"
+    assert payload["lattice_parameters"]["a"] == 3.0
+    assert payload["atomic_positions"][0]["element"] == "Si"
 
 
-def test_formulas_match_different_notation() -> None:
-    assert formulas_match("C2H5OH", "C2H6O") is True
-
-
-def test_formulas_match_different_composition() -> None:
-    assert formulas_match("C6H12O6", "C2H6O") is False
-
-
-def test_polymorph_not_found_message_includes_hints() -> None:
-    msg = polymorph_not_found_message("diamond", "C", "diamond", "Fd-3m", 50, "not in list")
+def test_phase_not_found_message_includes_info() -> None:
+    msg = phase_not_found_message(
+        "diamond",
+        "C",
+        50,
+        "not in list",
+    )
     assert "diamond" in msg
-    assert "Fd-3m" in msg
     assert "50 candidates" in msg
+    assert "not in list" in msg
 
 
-def test_parse_molecule_selection_found_false() -> None:
-    data = {"found": False, "selected_index": None, "reason": "ambiguous", "confidence": 2}
+def test_parse_molecule_selection_not_found() -> None:
+    data = {
+        "decision": "not_found",
+        "selected_index": None,
+        "selection_reason": "no stereo match",
+        "confidence": 2,
+    }
     result = parse_molecule_selection_response(data, n_candidates=3)
-    assert result["found"] is False
+    assert result["decision"] == "not_found"
     assert result["selected_index"] is None
-    assert result["confidence"] == 2
 
 
-def test_parse_molecule_selection_backward_compat_no_found_key() -> None:
-    data = {"selected_index": 1, "reason": "match", "confidence": 4}
+def test_parse_molecule_selection_ambiguous() -> None:
+    data = {
+        "decision": "ambiguous",
+        "selected_index": None,
+        "selection_reason": "multiple isomers",
+        "user_message": "Which xylene isomer?",
+        "suggested_candidates": [{"index": 0, "suggested_query": "o-xylene"}],
+    }
     result = parse_molecule_selection_response(data, n_candidates=3)
-    assert result["found"] is True
-    assert result["selected_index"] == 1
+    assert result["decision"] == "ambiguous"
+    assert result["selected_index"] is None
+    assert result["user_message"] == "Which xylene isomer?"
+
+
+def test_parse_molecule_selection_select() -> None:
+    data = {
+        "decision": "select",
+        "selected_index": 0,
+        "selection_reason": "only match",
+        "confidence": 5,
+    }
+    result = parse_molecule_selection_response(data, n_candidates=2)
+    assert result["decision"] == "select"
+    assert result["selected_index"] == 0
+
+
+def test_format_followup_queries_crystal_aliases_and_formula_space_group() -> None:
+    """Crystal follow-ups use aliases when known, else formula plus space group."""
+    candidates = [
+        {"index": 0, "mp_id": "mp-2657", "formula": "TiO2", "space_group": "P4_2/mnm"},
+        {"index": 1, "mp_id": "mp-390", "formula": "TiO2", "space_group": "I4_1/amd"},
+        {"index": 2, "mp_id": "mp-149", "formula": "Si", "space_group": "Fd-3m"},
+        {"index": 3, "mp_id": "mp-604884", "formula": "BN", "space_group": "P6_3/mmc"},
+    ]
+    formatted = format_followup_queries(
+        [
+            {"index": 0, "suggested_query": "mp-2657"},
+            {"index": 1, "suggested_query": "the anatase phase"},
+            {"index": 2, "suggested_query": "silicon mp-149"},
+            {"index": 3, "suggested_query": "hexagonal boron nitride"},
+        ],
+        candidates,
+        domain="crystal",
+    )
+    assert formatted == [
+        {"index": 0, "suggested_query": "rutile TiO2"},
+        {"index": 1, "suggested_query": "anatase TiO2"},
+        {"index": 2, "suggested_query": "Si Fd-3m"},
+        {"index": 3, "suggested_query": "h-BN P6_3/mmc"},
+    ]
+    assert all("mp-" not in row["suggested_query"] for row in formatted)
+
+
+def test_format_followup_queries_molecule_uses_name_not_cid() -> None:
+    """Molecule follow-ups use the PubChem name, never the CID."""
+    formatted = format_followup_queries(
+        [
+            {"index": 0, "suggested_query": "CID 11583"},
+            {"index": 1, "suggested_query": "xylene isomer 2"},
+        ],
+        [
+            {"index": 0, "cid": 11583, "name": "o-xylene", "formula": "C8H10"},
+            {"index": 1, "cid": 7929, "name": "m-xylene", "formula": "C8H10"},
+        ],
+        domain="molecule",
+    )
+    assert formatted == [
+        {"index": 0, "suggested_query": "o-xylene"},
+        {"index": 1, "suggested_query": "m-xylene"},
+    ]
+
+
+def test_format_followup_queries_drops_invalid_indices() -> None:
+    """Suggestions without a usable candidate index are discarded."""
+    formatted = format_followup_queries(
+        [
+            {"index": 9, "suggested_query": "rutile TiO2"},
+            {"suggested_query": "anatase TiO2"},
+            "not a dict",
+            {"index": 0, "suggested_query": "mp-2657"},
+        ],
+        [{"formula": "TiO2", "space_group": "P4_2/mnm"}],
+        domain="crystal",
+    )
+    assert formatted == [{"index": 0, "suggested_query": "rutile TiO2"}]

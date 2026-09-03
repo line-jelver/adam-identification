@@ -12,9 +12,11 @@ Run:
 from adam_identification import identify
 from adam_identification.output import to_ase, to_pymatgen
 
+MODEL = "gemini-3.1-pro-preview"
+
 queries = [
     "silicon",
-    "hexagonal boron nitride",
+    "rutile TiO2",
     "iron (BCC)",
     "alpha-alumina",
 ]
@@ -22,7 +24,7 @@ queries = [
 for query in queries:
     print(f"\nIdentifying: {query!r}")
     try:
-        material = identify(query, output="material")
+        material = identify(query, model=MODEL, output="material")
         struct = material.structure
         print(f"  Formula:     {material.chemical_formula}")
         print(f"  MP ID:       {material.mp_id}")

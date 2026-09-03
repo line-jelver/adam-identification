@@ -30,8 +30,8 @@ print(f"Identifying {len(queries)} materials concurrently (concurrency=4)...\n")
 
 results = batch_identify(
     queries,
-    provider="gemini",
-    model="gemini-2.5-flash",
+    provider="google",
+    model="gemini-3.1-pro-preview",
     concurrency=4,
     output="ase",
 )
