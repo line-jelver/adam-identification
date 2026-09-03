@@ -1,27 +1,97 @@
-You are a chemistry expert selecting the correct compound from a list of PubChem candidates.
+Select the PubChem candidate that best matches the identity expressed by
+the user request.
 
-The user wants: "{{ query }}"
-Expected formula: {{ formula }}
+User request: "{{ query }}"
+Formula: {{ formula }}
+{% if search_name %}Search name: {{ search_name }}{% endif %}
 
-The following PubChem candidates all match the expected formula (or are close matches):
-
+Formula-filtered PubChem candidates:
 {% for c in candidates %}
 [{{ c.index }}] CID {{ c.cid }}: {{ c.name }}
-     Formula: {{ c.formula }}
-     SMILES: {{ c.smiles if c.smiles else "N/A" }}
+  Formula: {{ c.formula }}
+  SMILES: {{ c.get("isomeric_smiles") or c.get("smiles") or "N/A" }}
+  {% if c.get("inchi_key") %}InChIKey: {{ c.get("inchi_key") }}{% endif %}
 {% endfor %}
 
-Your task: identify which candidate is the compound the user actually requested.
+Decision rules:
+- decision="select": one candidate matches the identity expressed by the original
+  request.
+{% if minimal_interaction %}
+- decision="not_found": the request specifies an identity or stereochemistry but no
+  candidate matches it.
+- When at least one plausible candidate exists, always return decision="select".
+  Do not return ambiguous.
+{% else %}
+- decision="ambiguous": multiple chemically distinct candidates remain plausible
+  and the request does not distinguish them.
+- decision="not_found": the request specifies an identity or stereochemistry but no
+  candidate matches it.
+{% endif %}
 
-Guidelines:
-- Match by common name first — "morpholine" should resolve to the morpholine ring, not a structural isomer.
-- Use the SMILES to confirm connectivity when names are ambiguous.
-- If multiple candidates have the same common name, pick the most canonical one (lowest CID is usually most canonical in PubChem).
+Selection rules:
+- Apply evidence in this order: explicit information in the original request;
+  candidate names and stereochemistry-preserving identifiers (SMILES, InChIKey);
+  extracted search name.
+- Require the requested connectivity. Formula agreement alone is insufficient.
+- Positional and constitutional isomers are distinct. Enantiomers, diastereomers,
+  and E/Z isomers are distinct when stereochemistry is specified. Correct
+  connectivity with wrong handedness is then incorrect.
+{% if minimal_interaction %}
+- When plausible candidates differ in unspecified stereochemistry, tautomer, or
+  protonation state: select when the name has one well-established meaning in common
+  usage (e.g. "glucose" = D-glucose, "adrenaline" = L-adrenaline).
+- When multiple plausible candidates remain after applying the evidence above:
+  select the most defensible candidate, or the lower-index candidate when equally
+  defensible; set needs_review=true; state the assumption in selection_reason; and
+  list alternative candidates in suggested_candidates.
+- When one candidate clearly matches the requested identity, select with
+  needs_review=false.
+{% else %}
+- If plausible candidates differ only in unspecified stereochemistry, tautomer, or
+  protonation state, return ambiguous — unless the exact requested name has one
+  well-established meaning in common usage. A name that unambiguously designates
+  one stereoisomer (e.g. "glucose" = D-glucose, "adrenaline" = L-adrenaline) may
+  be selected; document the reasoning in selection_reason.
+{% endif %}
+{% if minimal_interaction %}
+- For select: provide a valid selected_index. Use suggested_candidates=[] when
+  needs_review=false; when needs_review=true, list up to five alternative plausible
+  candidates in suggested_candidates. Set user_message=null.
+- For not_found: use selected_index=null, needs_review=false, and explain what the
+  user should specify next in one concise user_message.
+- Always provide selection_reason: decisive evidence for unambiguous select, the
+  assumption made when needs_review=true, or why no candidate matches for not_found.
+- Set needs_review=true whenever the selection rests on an unresolved assumption
+  (stereochemistry, tautomer, protonation, etc.). needs_review does not indicate
+  failure.
+{% else %}
+- For select, provide a valid selected_index and suggested_candidates=[]. For
+  ambiguous or not_found, use selected_index=null and explain what the user should
+  specify next in one concise, flowing user_message.
+- Always provide selection_reason. It should briefly state the
+  decisive evidence for select, or the unresolved distinction for ambiguous or
+  not_found.
+- For ambiguity, offer up to five chemically distinct choices from the supplied
+  candidates. Each suggestion must use an actual candidate index and preserve the
+  distinguishing name or stereochemical qualifier. Suggestions are not exhaustive.
+{% endif %}
+- Set confidence to reflect how certain you are about the selection (1=low, 5=high). Use confidence=5 only when the identity is unambiguous.
 
-Return a single JSON object and nothing else:
+Return one JSON object and nothing else:
 
 {
-  "selected_index": <integer index from 0 to {{ candidates|length - 1 }}>,
-  "reason": "<one sentence explaining why this candidate matches the query>",
-  "confidence": <integer 1 (low) to 5 (high)>
+  "decision": "<select{% if not minimal_interaction %} | ambiguous{% endif %} | not_found>",
+  "selected_index": <integer candidate index or null>,
+  "user_message": "<selection explanation or clarification guidance, or null if select>",
+  "selection_reason": "<brief audit reason for the decision>",
+  "suggested_candidates": [
+    {
+      "index": <integer candidate index>,
+      "suggested_query": "<specific follow-up request>"
+    }
+  ],
+  "confidence": <integer 1 to 5>,
+  "needs_review": <true | false>
 }
+
+Important: always output a complete, closed JSON object before stopping.

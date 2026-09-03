@@ -1,29 +1,94 @@
-You are a computational materials scientist selecting the correct crystal phase for a
-ground-state DFT calculation.
+Select the Materials Project candidate that best matches the identity expressed by
+the user request.
 
-The user wants: "{{ query }}"
-Extracted formula: {{ formula }}
-{% if polymorph_name %}Target polymorph: {{ polymorph_name }}{% endif %}
-{% if space_group_hint %}Expected space group: {{ space_group_hint }}{% endif %}
+User request: "{{ query }}"
+Formula: {{ formula }}
 
-Materials Project candidates (ordered by energy_above_hull ascending):
+Materials Project candidates:
 {{ candidates_json }}
 
-Your task:
-1. If a polymorph_name or space_group_hint is given, find the candidate that matches it.
-2. If no polymorph hint is given, choose the thermodynamically most stable entry that
-   represents the bulk phase described by the user.
-3. If none of the candidates matches the requested polymorph, set "found" to false.
+Decision rules:
+- decision="select": one candidate matches the identity expressed by the original
+  request.
+{% if minimal_interaction %}
+- decision="not_found": the request specifies a phase or structural identity but no
+  candidate matches it.
+- When at least one plausible candidate exists, always return decision="select".
+  Do not return ambiguous.
+{% else %}
+- decision="ambiguous": multiple distinct phases remain plausible and the request
+  does not distinguish them.
+- decision="not_found": the request specifies a phase or structural identity but no
+  candidate matches it.
+{% endif %}
 
-Return a single JSON object and nothing else:
+Selection rules:
+- Apply evidence in this order:
+  (1) Explicit information in the user request: phase names, space group, structural
+      qualifier, or identifier.
+  (2) Conventional meaning of the material or mineral name, as used in materials
+      science. Examples: "diamond" = cubic carbon (Fd-3m); "sodium chloride" =
+      rock-salt NaCl (Fm-3m); "anatase" = TiO2 (I4_1/amd). Record the convention
+      applied in selection_reason.
+{% if minimal_interaction %}
+- Multiple database candidates alone are not sufficient to abstain; select the most
+  defensible match and set needs_review=true when the request does not distinguish
+  them.
+- When the request leaves phase, space group, or structural identity unresolved
+  among multiple plausible candidates: select the most defensible candidate, or the
+  lower-index candidate when equally defensible; set needs_review=true; state the
+  assumption in selection_reason; and list alternative candidates in
+  suggested_candidates.
+- When one interpretation is clearly dominant (including conventional mineral names),
+  select with needs_review=false.
+- Chirality: when both enantiomorphs are present and handedness is unspecified,
+  select the lower-index candidate, set needs_review=true, and include both in
+  suggested_candidates.
+{% else %}
+- Multiple database candidates alone are not sufficient for decision="ambiguous".
+- Return ambiguous when multiple materially different interpretations remain
+  plausible.
+- Chirality: enantiomorphic pairs (e.g. P3_121 and P3_221) describe different
+  structures. When handedness is unspecified, return ambiguous and list both.
+{% endif %}
+- Recognize equivalent Hermann-Mauguin settings (Fd3m and Fd-3m are the same group).
+- Do not use energy_above_hull unless the user explicitly requests the lowest-energy
+  database candidate.
+- Primitive cell preference: when candidates share the same space group and formula
+  but differ only in nsites, prefer the lower site count.
+{% if minimal_interaction %}
+- For select: provide a valid selected_index. Use suggested_candidates=[] when
+  needs_review=false; when needs_review=true, list up to five alternative plausible
+  candidates in suggested_candidates. Set user_message=null.
+- For not_found: use selected_index=null, needs_review=false, and explain what the
+  user should specify next in one concise user_message.
+- Always provide selection_reason: decisive evidence for unambiguous select, the
+  assumption made when needs_review=true, or why no candidate matches for not_found.
+- Set needs_review=true whenever the selection rests on an unresolved assumption
+  (phase, chirality, etc.). needs_review does not indicate failure.
+{% else %}
+- For select, provide a valid selected_index and suggested_candidates=[]. For
+  ambiguous or not_found, use selected_index=null and explain what the user should
+  specify next in one concise, flowing user_message.
+- Always provide selection_reason. It should briefly state the
+  decisive evidence for select, or the unresolved distinction for ambiguous or
+  not_found.
+- For ambiguity, offer up to five genuinely distinct choices from the supplied list.
+  Each suggestion must use an actual candidate index and a query that would identify
+  that candidate on a subsequent call. Suggestions are not exhaustive.
+{% endif %}
+- Set confidence to reflect how certain you are about the selection (1=low, 5=high). Use confidence=5 only when the phase and chirality are unambiguous.
+
+Return one JSON object and nothing else:
 
 {
-  "found": <true | false>,
-  "selected_index": <integer index into the candidates list, or null if found=false>,
-  "reason": "<one sentence explaining the selection or why no match was found>",
-  "confidence": <integer 1 (low) to 5 (high)>
+  "decision": "<select{% if not minimal_interaction %} | ambiguous{% endif %} | not_found>",
+  "selected_index": <integer or null>,
+  "user_message": "<clarification guidance, or null if select>",
+  "selection_reason": "<brief audit reason>",
+  "suggested_candidates": [{"index": <integer>, "suggested_query": "<query>"}],
+  "confidence": <integer 1 to 5>,
+  "needs_review": <true | false>
 }
 
-Do not select an entry purely on energy stability when the user has specified a particular
-polymorph — structural match takes priority. If the target polymorph is not in the list,
-set found=false even if all energy_above_hull values are low.
+Important: always output a complete, closed JSON object before stopping.
