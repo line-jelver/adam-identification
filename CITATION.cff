@@ -15,8 +15,8 @@ authors:
     affiliation: "University of Southern Denmark"
 repository-code: "https://github.com/line-jelver/adam-identification"
 license: MIT
-version: "1.0.0"
-date-released: "2026-01-01"
+version: "1.4.0"
+date-released: "2026-09-03"
 
 preferred-citation:
   type: article
