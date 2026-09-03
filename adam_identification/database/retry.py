@@ -1,7 +1,13 @@
 """Sync retry helpers for transient database API errors.
 
-PubChem PUG REST can return ``PUGREST.ServerBusy`` under load. Clients use
-these helpers with the same backoff schedule as the LLM retry layer.
+PubChem PUG REST can return ``PUGREST.ServerBusy`` under parallel load.  Clients
+use these helpers with the same backoff schedule as :mod:`adam_identification.llm.retry`.
+
+Pipeline position:
+    Used by ``adam_identification.database.pubchem``.
+
+Cross-references:
+    - ``adam_identification.llm.retry.DEFAULT_RATE_LIMIT_DELAYS_S`` — shared delay schedule.
 """
 
 from __future__ import annotations
@@ -17,9 +23,9 @@ import httpx
 from adam_identification.exceptions import DatabaseAPIError
 from adam_identification.llm.retry import DEFAULT_RATE_LIMIT_DELAYS_S
 
-_T = TypeVar("_T")
-
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 DEFAULT_DB_MAX_ATTEMPTS = 5
 
@@ -35,31 +41,28 @@ PUBCHEM_TRANSIENT_MARKERS: tuple[str, ...] = (
     "http 502",
     "http 504",
     "http 429",
+    # PUGREST.ServerError covers "Search status indicates failure" and similar
+    # transient server-side faults that are distinct from NotFound.
+    "servererror",
+    "search status indicates failure",
 )
 
 
 @dataclass(frozen=True)
-class DbRetryResult(Generic[_T]):
-    """Outcome of a retried database API call.
+class DbRetryResult(Generic[T]):
+    """Outcome of a retried database API call with retry accounting.
 
     Attributes:
         value: Successful return value from the wrapped callable.
         transient_retries: Number of transient-error recoveries before success.
     """
 
-    value: _T
+    value: T
     transient_retries: int = 0
 
 
 def is_transient_database_error(exc: BaseException) -> bool:
-    """Return ``True`` when *exc* looks like a retryable transport fault.
-
-    Args:
-        exc: The exception to classify.
-
-    Returns:
-        ``True`` for httpx network errors and known PubChem busy responses.
-    """
+    """Return True when *exc* looks like a retryable PubChem/HTTP transport fault."""
     if isinstance(exc, httpx.RequestError):
         return True
     if isinstance(exc, DatabaseAPIError):
@@ -69,26 +72,26 @@ def is_transient_database_error(exc: BaseException) -> bool:
 
 
 def retry_on_transient_error(
-    fn: Callable[[], _T],
+    fn: Callable[[], T],
     *,
     max_attempts: int = DEFAULT_DB_MAX_ATTEMPTS,
     delays_s: tuple[float, ...] = DEFAULT_RATE_LIMIT_DELAYS_S,
     label: str = "Database API",
-) -> "DbRetryResult[_T]":
+) -> DbRetryResult[T]:
     """Call ``fn`` with exponential backoff on transient database errors.
 
     Args:
         fn: Zero-argument callable to invoke on each attempt.
         max_attempts: Total attempts before re-raising the last error.
-        delays_s: Sleep durations before attempts 2..N.
-        label: Short name for log messages, e.g. ``"PubChem"``.
+        delays_s: Sleep duration before attempts 2..N.
+        label: Short name for log messages (e.g. ``"PubChem"``).
 
     Returns:
         :class:`DbRetryResult` with the successful value and retry count.
 
     Raises:
-        BaseException: Re-raises the last error when attempts are exhausted or
-            the error is not classified as transient.
+        BaseException: Re-raises the last error when attempts are exhausted or the
+            error is not classified as transient.
     """
     if max_attempts < 1:
         raise ValueError("max_attempts must be >= 1")
