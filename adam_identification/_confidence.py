@@ -1,8 +1,12 @@
 """Parse model-reported confidence levels from identification LLM JSON.
 
-The identification prompts ask models to return a confidence score on a 1
-(low) to 5 (high) integer scale. Legacy runs used ``low`` / ``medium`` /
-``high`` strings; this module normalises both formats.
+Identification prompts ask models for a confidence score on a 1 (low) to 5
+(high) integer scale. Legacy runs used ``low`` / ``medium`` / ``high``
+strings; this module normalises both formats.
+
+Cross-references:
+    - ``adam_identification.templates.identification.*`` — prompt schemas.
+    - ``adam_identification._phase_lookup`` — selection parsers.
 """
 
 from __future__ import annotations
@@ -23,8 +27,8 @@ def parse_confidence_level(value: Any) -> int | None:
         value: Raw JSON field — integer, numeric string, or legacy label.
 
     Returns:
-        Confidence level ``1`` (low) through ``5`` (high), or ``None`` if
-        missing or unrecognised.
+        Confidence level ``1`` (low) through ``5`` (high), or ``None`` if missing
+        or unrecognised.
     """
     if value is None:
         return None
