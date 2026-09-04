@@ -123,8 +123,8 @@ Two prompt modes are supported. Both use the same database-grounded pipeline; th
 
 | Mode | How to enable | Behaviour |
 |---|---|---|
-| **Standard** (default) | `minimal_interaction=False` | The model may return `ambiguous` and raise `AmbiguousIdentificationError` with candidate options. Used in the paper's **ambiguity / abstention study**. |
-| **Minimal interaction** | `minimal_interaction=True` | The model always selects a candidate. Uncertain conventional assumptions are flagged with `trace.needs_review`. Used for headline **Figures 1–3**. |
+| **Standard** (default) | `minimal_interaction=False` | The model may return `ambiguous` and raise `AmbiguousIdentificationError` with candidate options.  |
+| **Minimal interaction** | `minimal_interaction=True` | The model always selects a candidate. Uncertain conventional assumptions are flagged with `trace.needs_review`.  |
 
 ```python
 MODEL = "gemini-3.1-pro-preview"
@@ -335,17 +335,14 @@ If you use this software in scientific work, please cite:
 }
 ```
 
-A `CITATION.cff` file is included; GitHub displays a **"Cite this repository"** button automatically.
-
 ---
 
 ## Known limitations
 
-- **No default model** — `model=` / `--model` is required for every call.
 - **Crystal structures from the Materials Project** are primitive-cell DFT-relaxed geometries (GGA-PBE or HSE06). They may differ from experimental unit cells.
-- **Molecule 3D geometries from PubChem** are PubChem-computed conformers (MMFF94); they are not DFT-optimised. A subsequent DFT relaxation is recommended before production calculations.
+- **Molecule 3D geometries from PubChem** are PubChem-computed conformers (MMFF94). They are not DFT-optimised. A subsequent DFT relaxation is recommended before production calculations.
 - **One material per call** — the agent assumes a single-compound query. Multi-component descriptions (e.g. "TiO2 on SiO2 substrate") are treated as a clarification request.
-- **LLM non-determinism** — results may vary across model versions and temperature settings. Use `minimal_interaction=False` (standard mode) for benchmarking where reproducible abstention is required.
+- **LLM non-determinism** — results can vary across providers and model versions.
 
 ---
 
