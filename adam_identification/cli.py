@@ -193,27 +193,44 @@ def _run_single(
     from adam_identification.llm import get_provider as _get_provider
     from adam_identification.trace import IdentificationTrace
 
-    with console.status(f"[bold]Identifying:[/bold] {query}"):
+    llm = _get_provider(provider, model)
+    mp_client = MaterialsProjectClient(api_key=mp_api_key)
+    pubchem_client = PubChemClient()
+    identifier = MaterialIdentifier(
+        llm, mp_client, pubchem_client, minimal_interaction=minimal_interaction
+    )
+
+    # In verbose mode skip the spinner so DEBUG log lines aren't overwritten.
+    # Otherwise run inside a status spinner, but capture any exception and only
+    # print it *after* the spinner stops to prevent output collisions.
+    _caught: Exception | None = None
+    if verbose:
+        console.print(f"[bold]Identifying:[/bold] {query}")
         try:
-            llm = _get_provider(provider, model)
-            mp_client = MaterialsProjectClient(api_key=mp_api_key)
-            pubchem_client = PubChemClient()
-            identifier = MaterialIdentifier(
-                llm, mp_client, pubchem_client, minimal_interaction=minimal_interaction
-            )
             material, trace = identifier.identify(query, return_trace=True)
-        except AmbiguousIdentificationError as exc:
-            _print_ambiguous(exc, verbose=verbose)
-            raise typer.Exit(1) from exc
-        except ClarificationNeededError as exc:
-            err_console.print(f"[yellow]Clarification needed:[/yellow] {exc}")
-            raise typer.Exit(1) from exc
-        except Exception as exc:
-            err_console.print(f"[red]Error:[/red] {exc}")
-            raise typer.Exit(1) from exc
+        except Exception as _exc:
+            _caught = _exc
+    else:
+        with console.status(f"[bold]Identifying:[/bold] {query}"):
+            try:
+                material, trace = identifier.identify(query, return_trace=True)
+            except Exception as _exc:
+                _caught = _exc
+
+    # Spinner has now stopped — safe to print without line collisions.
+    if _caught is not None:
+        err_console.print()  # blank line separates from the spinner/header line
+        if isinstance(_caught, AmbiguousIdentificationError):
+            _print_ambiguous(_caught, verbose=verbose)
+            raise typer.Exit(1) from _caught
+        if isinstance(_caught, ClarificationNeededError):
+            err_console.print(f"[yellow]Clarification needed:[/yellow] {_caught}")
+            raise typer.Exit(1) from _caught
+        err_console.print(f"[red]Error:[/red] {_caught}")
+        raise typer.Exit(1) from _caught
 
     if not isinstance(trace, IdentificationTrace):
-        trace = IdentificationTrace(query=query, domain="crystal")
+        trace = IdentificationTrace(query=query, domain="crystal")  # type: ignore[arg-type]
     _print_material(material, query, trace=trace)
 
     if save is not None:
