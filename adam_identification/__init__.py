@@ -48,6 +48,7 @@ del _lib
 
 from typing import TYPE_CHECKING, Literal
 
+from adam_identification._config import ConfigurationError
 from adam_identification.exceptions import (
     AmbiguousIdentificationError,
     AuthenticationError,
@@ -115,6 +116,7 @@ __all__ = [
     "AuthenticationError",
     "ProviderUnavailableError",
     "InvalidResponseError",
+    "ConfigurationError",
     "__version__",
 ]
 

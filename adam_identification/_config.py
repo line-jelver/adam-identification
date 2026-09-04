@@ -26,7 +26,15 @@ if _dotenv_path:
 
 
 class ConfigurationError(Exception):
-    """Raised when a required environment variable is missing."""
+    """Raised when a required configuration value is missing or invalid.
+
+    Common causes:
+
+    * ``model`` omitted from :func:`~adam_identification.llm.get_provider` or
+      :func:`~adam_identification.identify`.
+    * A required API key (``MATERIALS_PROJECT_API_KEY``, ``GOOGLE_API_KEY``,
+      etc.) is not set in the environment or ``.env`` file.
+    """
 
 
 def _optional(key: str) -> str | None:
