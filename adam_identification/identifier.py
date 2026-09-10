@@ -28,7 +28,7 @@ Cross-references:
     - ``adam_identification._prompts`` — Jinja2 template rendering.
     - ``adam_identification._phase_lookup`` — shared narrow/wide search policy.
     - ``adam_identification._followup`` — rewrite LLM follow-up query strings.
-    - ``adam_identification.trace`` — ``IdentificationTrace`` provenance record.
+    - ``adam_identification.provenance.trace`` — ``Trace`` / ``IdentificationSection``.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Literal, cast, overload
+from typing import Any, cast
 
 from adam_identification._confidence import parse_confidence_level
 from adam_identification._followup import format_followup_queries
@@ -64,7 +64,12 @@ from adam_identification.exceptions import (
 )
 from adam_identification.llm.base import BaseLLM
 from adam_identification.models import Material
-from adam_identification.trace import IdentificationTrace
+from adam_identification.provenance.context import (
+    checkpoint,
+    identification_stage,
+    llm_purpose,
+)
+from adam_identification.provenance.trace import IdentificationStage, Trace
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +77,7 @@ logger = logging.getLogger(__name__)
 def _molecule_candidates_for_trace(
     candidates: list[MoleculeCandidate],
 ) -> list[dict[str, Any]]:
-    """Serialize PubChem candidates for :class:`IdentificationTrace`."""
+    """Serialize PubChem candidates into the shared narrow/wide candidate lists."""
     return [
         {
             "cid": candidate["cid"],
@@ -86,9 +91,14 @@ def _molecule_candidates_for_trace(
     ]
 
 
-def _attach_trace(exc: Exception, trace: IdentificationTrace) -> None:
-    """Attach provenance to an identification exception when supported."""
+def _attach_trace(exc: Exception, trace: Trace) -> None:
+    """Attach the full provenance :class:`Trace` to an identification exception."""
     exc.trace = trace  # type: ignore[attr-defined]
+
+
+def _checkpoint_identification() -> None:
+    """Persist identification mutations when a store is bound."""
+    checkpoint()
 
 
 class MaterialIdentifier:
@@ -147,40 +157,18 @@ class MaterialIdentifier:
         self._loader = PromptLoader()
         self._minimal_interaction = minimal_interaction
 
-    # ── Public API ──────────────────────────────────────────────────────────────
-
-    @overload
-    def identify(self, query: str, *, return_trace: Literal[False] = False) -> Material: ...
-
-    @overload
-    def identify(
-        self, query: str, *, return_trace: Literal[True]
-    ) -> tuple[Material, IdentificationTrace]: ...
-
-    @overload
-    def identify(
-        self, query: str, *, return_trace: bool
-    ) -> Material | tuple[Material, IdentificationTrace]: ...
-
-    def identify(
-        self,
-        query: str,
-        *,
-        return_trace: bool = False,
-    ) -> Material | tuple[Material, IdentificationTrace]:
+    def identify(self, query: str, *, trace: Trace) -> Material:
         """Resolve ``query`` to a ``Material`` from MP (crystal) or PubChem (molecule).
 
         Args:
             query: Natural language description, e.g. ``"silicon"``, ``"glucose"``,
                 ``"hexagonal graphite"``.
-            return_trace: When ``True``, return ``(material, trace)`` instead of
-                only the material.  On failure, exceptions may carry a ``trace``
-                attribute when populated.
+            trace: Active :class:`~adam_identification.provenance.trace.Trace`.
+                This method writes :attr:`Trace.identification` and checkpoints.
 
         Returns:
             A ``Material`` with ``CrystalStructure`` (crystals) or
-            ``MoleculeStructure`` (molecules), or a ``(Material, IdentificationTrace)``
-            tuple when ``return_trace=True``.
+            ``MoleculeStructure`` (molecules).
 
         Raises:
             ClarificationNeededError: If the extraction step cannot determine
@@ -192,15 +180,17 @@ class MaterialIdentifier:
             ValueError: If the LLM returns an empty formula, or if
                 ``domain="molecule"`` but no ``pubchem_client`` was provided.
         """
-        trace = IdentificationTrace(query=query, domain="crystal")
+        section = trace.identification
         extraction = self._extract_formula(query)
-        trace.extraction = extraction
+        section.extraction = extraction
         domain: str = extraction["domain"]
-        trace.domain = domain  # type: ignore[assignment]
+        section.domain = domain  # type: ignore[assignment]
+        _checkpoint_identification()
 
         if extraction["decision"] == "clarify":
-            trace.outcome = "clarify"
-            trace.clarification_message = extraction.get("user_message")
+            section.outcome = "clarify"
+            section.clarification_message = extraction.get("user_message")
+            _checkpoint_identification()
             exc = ClarificationNeededError(
                 extraction.get("user_message")
                 or f"LLM could not determine composition or domain for {query!r}.",
@@ -214,33 +204,27 @@ class MaterialIdentifier:
         logger.info("[%s] formula=%s domain=%s", query, formula, domain)
 
         if domain == "molecule":
-            material = self._identify_molecule(query, extraction, trace)
-            if return_trace:
-                return material, trace
-            return material
-
-        # crystal or unknown → crystal path
-        material = self._identify_crystal(query, extraction, trace)
-        if return_trace:
-            return material, trace
-        return material
-
-    # ── Internal helpers ────────────────────────────────────────────────────────
+            return self._identify_molecule(query, extraction, trace)
+        return self._identify_crystal(query, extraction, trace)
 
     def _identify_crystal(
         self,
         query: str,
         extraction: dict[str, Any],
-        trace: IdentificationTrace,
+        trace: Trace,
     ) -> Material:
         """Resolve a crystal query via Materials Project phase selection."""
+        section = trace.identification
         formula: str = extraction["formula"]
 
-        candidates = self._mp.search_by_formula(formula, max_results=INITIAL_MAX_RESULTS)
-        trace.n_candidates_narrow = len(candidates)
-        trace.candidates_shown_narrow = candidates_to_selection_json(candidates)
+        with identification_stage(IdentificationStage.DATABASE_SEARCH):
+            candidates = self._mp.search_by_formula(formula, max_results=INITIAL_MAX_RESULTS)
+        section.n_candidates_narrow = len(candidates)
+        section.candidates_shown_narrow = candidates_to_selection_json(candidates)
+        _checkpoint_identification()
         if not candidates:
-            trace.outcome = "not_found"
+            section.outcome = "not_found"
+            _checkpoint_identification()
             msg = (
                 f"No Materials Project entries found for formula {formula!r} "
                 f"(extracted from query {query!r})."
@@ -250,11 +234,15 @@ class MaterialIdentifier:
             raise exc
 
         logger.info("[%s] MP returned %d candidates (narrow)", query, len(candidates))
-        selection = self._select_phase(query, formula, candidates)
-        trace.narrow_selection = selection
-        trace.selection_decision = selection["decision"]
-        trace.selection_reason = selection["selection_reason"]
-        trace.suggested_candidates = selection["suggested_candidates"] or None
+        with identification_stage(IdentificationStage.SELECTION):
+            selection = self._select_phase(
+                query, formula, candidates, purpose="identification.narrow_selection"
+            )
+        section.narrow_selection = selection
+        section.selection_decision = selection["decision"]
+        section.selection_reason = selection["selection_reason"]
+        section.suggested_candidates = selection["suggested_candidates"] or None
+        _checkpoint_identification()
 
         if selection["decision"] == "select" or (
             self._minimal_interaction and selection["decision"] == "ambiguous"
@@ -262,7 +250,7 @@ class MaterialIdentifier:
             if selection["decision"] == "ambiguous":
                 sel_idx = selection.get("selected_index")
                 idx = int(sel_idx) if sel_idx is not None else 0
-                trace.needs_review = True
+                section.needs_review = True
                 logger.warning(
                     "[%s] minimal_interaction: ambiguous→select index=%d needs_review=True",
                     query,
@@ -271,10 +259,11 @@ class MaterialIdentifier:
             else:
                 idx = int(selection["selected_index"])
                 if selection.get("needs_review"):
-                    trace.needs_review = True
+                    section.needs_review = True
             material = candidates[idx]
-            trace.outcome = "selected"
-            trace.selected_id = material.mp_id
+            section.outcome = "selected"
+            section.selected_id = material.mp_id
+            _checkpoint_identification()
             logger.info(
                 "[%s] selected %s (%s) — %s",
                 query,
@@ -285,21 +274,21 @@ class MaterialIdentifier:
             return material
 
         if selection["decision"] == "ambiguous":
-            trace.outcome = "ambiguous"
+            section.outcome = "ambiguous"
+            _checkpoint_identification()
             exc = AmbiguousIdentificationError(
                 f"Ambiguous query {query!r}: formula {formula!r} matches multiple "
                 "phases and the query does not uniquely identify one.",
                 query=query,
                 formula=formula,
                 domain="crystal",
-                candidates=trace.candidates_shown_narrow,
+                candidates=section.candidates_shown_narrow,
                 user_message=selection.get("user_message"),
                 suggested_candidates=selection.get("suggested_candidates"),
             )
             exc.trace = trace
             raise exc
 
-        # decision == "not_found" in narrow set → widen search
         logger.warning(
             "[%s] phase not matched in narrow set (%d candidates): %s — widening to %d",
             query,
@@ -307,16 +296,22 @@ class MaterialIdentifier:
             selection.get("selection_reason", ""),
             WIDE_MAX_RESULTS,
         )
-        wide_candidates = self._mp.search_by_formula(formula, max_results=WIDE_MAX_RESULTS)
-        trace.n_candidates_wide = len(wide_candidates)
-        trace.candidates_shown_wide = candidates_to_selection_json(wide_candidates)
+        with identification_stage(IdentificationStage.DATABASE_SEARCH):
+            wide_candidates = self._mp.search_by_formula(formula, max_results=WIDE_MAX_RESULTS)
+        section.n_candidates_wide = len(wide_candidates)
+        section.candidates_shown_wide = candidates_to_selection_json(wide_candidates)
+        _checkpoint_identification()
         logger.info("[%s] MP returned %d candidates (wide)", query, len(wide_candidates))
 
-        wide_selection = self._select_phase(query, formula, wide_candidates)
-        trace.wide_selection = wide_selection
-        trace.selection_decision = wide_selection["decision"]
-        trace.selection_reason = wide_selection["selection_reason"]
-        trace.suggested_candidates = wide_selection["suggested_candidates"] or None
+        with identification_stage(IdentificationStage.SELECTION):
+            wide_selection = self._select_phase(
+                query, formula, wide_candidates, purpose="identification.wide_selection"
+            )
+        section.wide_selection = wide_selection
+        section.selection_decision = wide_selection["decision"]
+        section.selection_reason = wide_selection["selection_reason"]
+        section.suggested_candidates = wide_selection["suggested_candidates"] or None
+        _checkpoint_identification()
 
         if wide_selection["decision"] == "select" or (
             self._minimal_interaction and wide_selection["decision"] == "ambiguous"
@@ -324,7 +319,7 @@ class MaterialIdentifier:
             if wide_selection["decision"] == "ambiguous":
                 sel_idx = wide_selection.get("selected_index")
                 idx = int(sel_idx) if sel_idx is not None else 0
-                trace.needs_review = True
+                section.needs_review = True
                 logger.warning(
                     "[%s] minimal_interaction: wide ambiguous→select index=%d needs_review=True",
                     query,
@@ -333,10 +328,11 @@ class MaterialIdentifier:
             else:
                 idx = int(wide_selection["selected_index"])
                 if wide_selection.get("needs_review"):
-                    trace.needs_review = True
+                    section.needs_review = True
             material = wide_candidates[idx]
-            trace.outcome = "selected"
-            trace.selected_id = material.mp_id
+            section.outcome = "selected"
+            section.selected_id = material.mp_id
+            _checkpoint_identification()
             logger.info(
                 "[%s] selected %s (%s) after wide search — %s",
                 query,
@@ -347,22 +343,23 @@ class MaterialIdentifier:
             return material
 
         if wide_selection["decision"] == "ambiguous":
-            trace.outcome = "ambiguous"
+            section.outcome = "ambiguous"
+            _checkpoint_identification()
             exc = AmbiguousIdentificationError(
                 f"Ambiguous query {query!r}: formula {formula!r} matches "
                 f"{len(wide_candidates)} phases and no candidate matched the request.",
                 query=query,
                 formula=formula,
                 domain="crystal",
-                candidates=trace.candidates_shown_wide,
+                candidates=section.candidates_shown_wide,
                 user_message=wide_selection.get("user_message"),
                 suggested_candidates=wide_selection.get("suggested_candidates"),
             )
             exc.trace = trace
             raise exc
 
-        # decision == "not_found" after wide search too
-        trace.outcome = "not_found"
+        section.outcome = "not_found"
+        _checkpoint_identification()
         msg = phase_not_found_message(
             query,
             formula,
@@ -377,9 +374,10 @@ class MaterialIdentifier:
         self,
         query: str,
         extraction: dict[str, Any],
-        trace: IdentificationTrace,
+        trace: Trace,
     ) -> Material:
         """Resolve a molecule query via PubChem with multi-candidate LLM selection."""
+        section = trace.identification
         if self._pubchem is None:
             raise ValueError(
                 f"Query {query!r} was identified as a molecule but no PubChemClient "
@@ -389,25 +387,27 @@ class MaterialIdentifier:
         search_name: str | None = extraction.get("search_name")
         formula: str = extraction["formula"]
 
-        # Name-based candidate search using the extraction search_name or the raw query.
         name_to_search = search_name or query
         name_candidates: list[MoleculeCandidate] = []
-        try:
-            name_candidates = self._pubchem.get_molecule_candidates(name_to_search)
-        except MaterialNotFoundError as exc:
-            logger.debug(
-                "[%s] Name candidate search for %r returned nothing: %s",
-                query,
-                name_to_search,
-                exc,
-            )
+        with identification_stage(IdentificationStage.DATABASE_SEARCH):
+            try:
+                name_candidates = self._pubchem.get_molecule_candidates(name_to_search)
+            except MaterialNotFoundError as exc:
+                logger.debug(
+                    "[%s] Name candidate search for %r returned nothing: %s",
+                    query,
+                    name_to_search,
+                    exc,
+                )
 
         formula_candidates = [
             candidate
             for candidate in name_candidates
             if _formulas_match(candidate["formula"], formula)
         ]
-        trace.candidates_shown_molecule = _molecule_candidates_for_trace(formula_candidates)
+        section.n_candidates_narrow = len(formula_candidates)
+        section.candidates_shown_narrow = _molecule_candidates_for_trace(formula_candidates)
+        _checkpoint_identification()
 
         if not formula_candidates:
             logger.warning(
@@ -417,26 +417,32 @@ class MaterialIdentifier:
                 name_to_search,
                 formula,
             )
-            try:
-                formula_candidates = [
-                    candidate
-                    for candidate in self._pubchem.get_molecule_candidates_by_formula(formula)
-                    if _formulas_match(candidate["formula"], formula)
-                ]
-                trace.candidates_shown_molecule = _molecule_candidates_for_trace(formula_candidates)
-            except MaterialNotFoundError:
-                pass
-            except DatabaseAPIError as db_err:
-                logger.warning(
-                    "[%s] PubChem fastformula search failed after retries (formula=%r): %s; "
-                    "treating as not found.",
-                    query,
-                    formula,
-                    db_err,
-                )
+            with identification_stage(IdentificationStage.DATABASE_SEARCH):
+                try:
+                    formula_candidates = [
+                        candidate
+                        for candidate in self._pubchem.get_molecule_candidates_by_formula(formula)
+                        if _formulas_match(candidate["formula"], formula)
+                    ]
+                    section.n_candidates_narrow = len(formula_candidates)
+                    section.candidates_shown_narrow = _molecule_candidates_for_trace(
+                        formula_candidates
+                    )
+                    _checkpoint_identification()
+                except MaterialNotFoundError:
+                    pass
+                except DatabaseAPIError as db_err:
+                    logger.warning(
+                        "[%s] PubChem fastformula search failed after retries (formula=%r): %s; "
+                        "treating as not found.",
+                        query,
+                        formula,
+                        db_err,
+                    )
 
         if not formula_candidates:
-            trace.outcome = "not_found"
+            section.outcome = "not_found"
+            _checkpoint_identification()
             not_found_error = MaterialNotFoundError(
                 f"PubChem returned no matching molecule for query {query!r}. "
                 f"Tried name={name_to_search!r}, formula={formula!r}."
@@ -444,24 +450,29 @@ class MaterialIdentifier:
             _attach_trace(not_found_error, trace)
             raise not_found_error
 
-        selection = self._call_molecule_selection(query, formula, search_name, formula_candidates)
-        trace.molecule_selection = selection
-        trace.selection_decision = selection["decision"]
-        trace.selection_reason = selection["selection_reason"]
-        trace.suggested_candidates = selection["suggested_candidates"] or None
+        with identification_stage(IdentificationStage.SELECTION):
+            selection = self._call_molecule_selection(
+                query, formula, search_name, formula_candidates
+            )
+        section.narrow_selection = selection
+        section.selection_decision = selection["decision"]
+        section.selection_reason = selection["selection_reason"]
+        section.suggested_candidates = selection["suggested_candidates"] or None
+        _checkpoint_identification()
 
         if selection["decision"] != "select":
             if self._minimal_interaction and selection["decision"] == "ambiguous":
                 sel_idx = selection.get("selected_index")
                 idx = int(sel_idx) if sel_idx is not None else 0
-                trace.needs_review = True
+                section.needs_review = True
                 logger.warning(
                     "[%s] minimal_interaction: molecule ambiguous→select idx=%d needs_review=True",
                     query,
                     idx,
                 )
             else:
-                trace.outcome = "ambiguous"
+                section.outcome = "ambiguous"
+                _checkpoint_identification()
                 ambiguous_error = AmbiguousIdentificationError(
                     f"Ambiguous query {query!r}: formula {formula!r} matches "
                     f"{len(formula_candidates)} candidates and the query does not "
@@ -469,7 +480,7 @@ class MaterialIdentifier:
                     query=query,
                     formula=formula,
                     domain="molecule",
-                    candidates=trace.candidates_shown_molecule,
+                    candidates=section.candidates_shown_narrow,
                     user_message=selection.get("user_message"),
                     suggested_candidates=selection.get("suggested_candidates"),
                 )
@@ -478,7 +489,7 @@ class MaterialIdentifier:
         else:
             idx = int(selection["selected_index"])
             if selection.get("needs_review"):
-                trace.needs_review = True
+                section.needs_review = True
         winner_cid = formula_candidates[idx]["cid"]
         logger.info(
             "[%s] LLM selected molecule candidate index %d: CID %d (%s) — %s",
@@ -489,11 +500,13 @@ class MaterialIdentifier:
             selection.get("selection_reason", ""),
         )
 
-        trace.outcome = "selected"
-        trace.selected_id = str(winner_cid)
+        section.outcome = "selected"
+        section.selected_id = str(winner_cid)
+        _checkpoint_identification()
 
         logger.info("[%s] Fetching 3D structure for winner CID %d", query, winner_cid)
-        return self._pubchem.get_by_cid(winner_cid)
+        with identification_stage(IdentificationStage.DATABASE_SEARCH):
+            return self._pubchem.get_by_cid(winner_cid)
 
     def _call_molecule_selection(
         self,
@@ -502,21 +515,7 @@ class MaterialIdentifier:
         search_name: str | None,
         candidates: list[MoleculeCandidate],
     ) -> dict[str, Any]:
-        """Call the LLM to select among PubChem candidates.
-
-        Args:
-            query: Original user query.
-            formula: LLM-extracted formula (all candidates already pass the
-                formula filter at this point).
-            search_name: Normalized name from extraction (may be ``None``).
-            candidates: PubChem candidate dicts with CID, name, formula,
-                isomeric_smiles, and inchi_key (where available).
-
-        Returns:
-            Parsed selection dict with keys ``decision``, ``selected_index``,
-            ``selection_reason``, ``user_message``, ``suggested_candidates``,
-            ``confidence``.
-        """
+        """Call the LLM to select among PubChem candidates."""
         prompt = self._loader.render(
             "identification/molecule_candidate_selection.j2",
             query=query,
@@ -525,7 +524,7 @@ class MaterialIdentifier:
             candidates=molecule_candidates_to_selection_json(candidates),
             minimal_interaction=self._minimal_interaction,
         )
-        data = self._call_llm_json(prompt)
+        data = self._call_llm_json(prompt, purpose="identification.narrow_selection")
         result = parse_molecule_selection_response(data, len(candidates))
         result["suggested_candidates"] = format_followup_queries(
             result["suggested_candidates"],
@@ -545,50 +544,23 @@ class MaterialIdentifier:
         """Run an async LLM coroutine in a fresh event loop (sync context)."""
         return asyncio.run(coro)
 
-    def _call_llm_json(self, prompt: str) -> dict[str, Any]:
-        """Call the LLM and parse JSON from its response.
-
-        Args:
-            prompt: Full rendered prompt text.
-
-        Returns:
-            Parsed JSON object.
-
-        Raises:
-            ValueError: If the LLM response cannot be parsed as a JSON object.
-        """
+    def _call_llm_json(
+        self, prompt: str, *, purpose: str = "identification.extraction"
+    ) -> dict[str, Any]:
+        """Call the LLM and parse JSON from its response."""
 
         async def _call() -> dict[str, Any]:
-            response = await self._llm.complete_single(prompt, response_format="json")
+            with identification_stage(IdentificationStage.LLM):
+                response = await self._llm.complete_single(prompt, response_format="json")
             return cast(dict[str, Any], parse_llm_json_tolerant(response.content))
 
-        return cast(dict[str, Any], self._run_async(_call()))
+        with llm_purpose(purpose):
+            return cast(dict[str, Any], self._run_async(_call()))
 
     def _extract_formula(self, query: str) -> dict[str, Any]:
-        """Run formula-extraction prompt; return extraction dict.
-
-        Args:
-            query: User material description.
-
-        Returns:
-            Dict with keys:
-
-            * ``decision`` — ``"proceed"`` or ``"clarify"``.
-            * ``domain`` — ``"crystal"``, ``"molecule"``, or ``"unknown"``.
-            * ``formula`` — reduced chemical formula string (empty string when
-              ``decision="clarify"``).
-            * ``search_name`` — normalized name for PubChem search (molecules
-              only, else ``None``).
-            * ``user_message`` — clarification message from LLM when
-              ``decision="clarify"`` (else ``None``).
-            * ``suggested_queries`` — list of example follow-up queries (else ``[]``).
-            * ``confidence`` — integer ``1`` (low) through ``5`` (high).
-
-        Raises:
-            ValueError: If LLM returns an empty formula and ``decision="proceed"``.
-        """
+        """Run formula-extraction prompt; return extraction dict."""
         prompt = self._loader.render("identification/formula_extraction.j2", query=query)
-        data = self._call_llm_json(prompt)
+        data = self._call_llm_json(prompt, purpose="identification.extraction")
         decision = str(data.get("decision") or "proceed").lower()
         domain = str(data.get("domain") or "crystal").lower()
 
@@ -615,20 +587,10 @@ class MaterialIdentifier:
         query: str,
         formula: str,
         candidates: list[Material],
+        *,
+        purpose: str = "identification.narrow_selection",
     ) -> dict[str, Any]:
-        """Run phase-selection prompt and return the selection dict.
-
-        Args:
-            query: Original user query.
-            formula: Extracted chemical formula.
-            candidates: Ordered MP candidate materials.
-
-        Returns:
-            Dict with keys ``decision`` (str), ``selected_index`` (int | None),
-            ``selection_reason`` (str), ``user_message`` (str | None),
-            ``suggested_candidates`` (list), ``confidence`` (int | None),
-            ``needs_review`` (bool).
-        """
+        """Run phase-selection prompt and return the selection dict."""
         prompt = self._loader.render(
             "identification/phase_selection.j2",
             query=query,
@@ -636,7 +598,7 @@ class MaterialIdentifier:
             candidates_json=json.dumps(candidates_to_selection_json(candidates), indent=2),
             minimal_interaction=self._minimal_interaction,
         )
-        data = self._call_llm_json(prompt)
+        data = self._call_llm_json(prompt, purpose=purpose)
         result = parse_phase_selection_response(data, len(candidates))
         result["suggested_candidates"] = format_followup_queries(
             result["suggested_candidates"],
@@ -646,4 +608,4 @@ class MaterialIdentifier:
         return result
 
 
-__all__ = ["MaterialIdentifier", "IdentificationTrace"]
+__all__ = ["MaterialIdentifier"]

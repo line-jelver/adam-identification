@@ -34,6 +34,8 @@ class AnthropicProvider(BaseLLM):
         self._model = model
         self._base_url = _ANTHROPIC_URL
         self._json_mode_suffix = PromptLoader().render("llm/anthropic_json_suffix.j2")
+        self.provider = "anthropic"
+        self.requested_model = model
 
     def _headers(self) -> dict[str, str]:
         return {

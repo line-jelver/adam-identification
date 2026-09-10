@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Literal
 
 from adam_identification.llm.retry import retry_on_rate_limit
@@ -66,6 +67,64 @@ class BaseLLM(ABC):
     wraps each call with :func:`~adam_identification.llm.retry.retry_on_rate_limit`.
     """
 
+    provider: str = "unknown"
+    requested_model: str = ""
+
+    def _record_call(
+        self,
+        *,
+        messages: list[Message],
+        response_format: str,
+        temperature: float | None,
+        max_tokens: int,
+        requested_at: datetime,
+        completed_at: datetime,
+        response: str | None,
+        error: str | None,
+        exc_type: str | None,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+        total_tokens: int | None,
+        provider_model: str | None,
+        rate_limit_retries: int,
+    ) -> None:
+        """Best-effort append of one LLM call onto the active trace."""
+        try:
+            from adam_identification.provenance.context import (
+                checkpoint,
+                current_purpose,
+                current_trace,
+            )
+            from adam_identification.provenance.trace import LLMCallRecord, LLMMessage
+
+            trace = current_trace()
+            if trace is None:
+                return
+            trace.record_llm_call(
+                LLMCallRecord(
+                    purpose=current_purpose(),
+                    provider=self.provider,
+                    requested_model=self.requested_model,
+                    provider_model=provider_model or None,
+                    requested_at=requested_at,
+                    completed_at=completed_at,
+                    messages=[LLMMessage(role=m.role, content=m.content) for m in messages],
+                    response=response,
+                    error=error,
+                    exc_type=exc_type,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format=response_format,
+                    rate_limit_retries=rate_limit_retries,
+                )
+            )
+            checkpoint()
+        except Exception:
+            pass
+
     async def complete(
         self,
         messages: list[Message],
@@ -74,7 +133,10 @@ class BaseLLM(ABC):
         temperature: float | None = None,
         max_tokens: int = 8000,
     ) -> LLMResponse:
-        """Send messages with automatic backoff on provider rate limits."""
+        """Send messages with automatic backoff on provider rate limits.
+
+        Each call is recorded on the active provenance trace when one is bound.
+        """
 
         async def _call() -> LLMResponse:
             return await self._complete_once(
@@ -84,14 +146,56 @@ class BaseLLM(ABC):
                 max_tokens=max_tokens,
             )
 
-        outcome = await retry_on_rate_limit(_call)
-        resp = outcome.value
-        return LLMResponse(
-            content=resp.content,
-            token_usage=resp.token_usage,
-            model=resp.model,
-            rate_limit_retries=outcome.api_retries,
-        )
+        requested_at = datetime.now(UTC)
+        rate_limit_retries = 0
+        try:
+            outcome = await retry_on_rate_limit(_call)
+            rate_limit_retries = outcome.api_retries
+            resp = outcome.value
+            usage = resp.token_usage
+            self._record_call(
+                messages=messages,
+                response_format=response_format,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                requested_at=requested_at,
+                completed_at=datetime.now(UTC),
+                response=resp.content,
+                error=None,
+                exc_type=None,
+                prompt_tokens=usage.prompt_tokens or None,
+                completion_tokens=usage.completion_tokens or None,
+                total_tokens=usage.total_tokens or None,
+                provider_model=resp.model or None,
+                rate_limit_retries=rate_limit_retries,
+            )
+            return LLMResponse(
+                content=resp.content,
+                token_usage=resp.token_usage,
+                model=resp.model,
+                rate_limit_retries=outcome.api_retries,
+            )
+        except Exception as exc:
+            retries = getattr(exc, "api_retries", rate_limit_retries)
+            if not isinstance(retries, int):
+                retries = rate_limit_retries
+            self._record_call(
+                messages=messages,
+                response_format=response_format,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                requested_at=requested_at,
+                completed_at=datetime.now(UTC),
+                response=None,
+                error=str(exc),
+                exc_type=type(exc).__name__,
+                prompt_tokens=None,
+                completion_tokens=None,
+                total_tokens=None,
+                provider_model=None,
+                rate_limit_retries=retries,
+            )
+            raise
 
     @abstractmethod
     async def _complete_once(

@@ -106,13 +106,17 @@ print(material.mp_id)                         # e.g. "mp-149"
 print(material.structure.space_group)         # "Fd-3m"
 print(material.properties[0].band_gap)        # DFT band gap in eV
 
-# Full provenance (atoms + Material + IdentificationTrace)
+# Full provenance (atoms + Material + Trace)
 result = identify("silicon", model=MODEL, output="result")
 result.atoms
 result.material.mp_id
-result.trace.outcome
+result.trace.identification.outcome
 result.trace.needs_review          # True in minimal-interaction when the pick was uncertain
-result.trace.suggested_candidates
+result.trace.identification.suggested_candidates
+result.trace.llm_calls             # full prompts, responses, models, token counts
+
+# Persist adam.json (and a structure file) when work_dir is set
+result = identify("silicon", model=MODEL, output="result", work_dir="./runs/si")
 ```
 
 `batch_identify` accepts the same `output` values, including `"result"`.
@@ -136,7 +140,7 @@ identify("hexagonal boron nitride", model=MODEL)
 # Minimal interaction: pick one and mark the trace for review
 result = identify("TiO2", model=MODEL, minimal_interaction=True, output="result")
 if result.trace.needs_review:
-    print(result.material.mp_id, result.trace.selection_reason)
+    print(result.material.mp_id, result.trace.identification.selection_reason)
 ```
 
 CLI: `adam-identify "TiO2" --model gemini-3.1-pro-preview --minimal-interaction`
@@ -177,8 +181,11 @@ adam-identify "BCC iron" --provider openai --model gpt-5.4-mini
 
 # Save to file (CIF for crystals, XYZ for molecules).
 # ASE writes the primitive cell (often P1), not the conventional cell.
+# A work directory is always created (default ./identification_runs/<timestamp>/)
+# containing adam.json and a copy of the structure file.
 adam-identify "silicon" --model gemini-3.1-pro-preview --save silicon.cif
 adam-identify "caffeine" --model gemini-3.1-pro-preview --save caffeine.xyz
+adam-identify "silicon" --model gemini-3.1-pro-preview --work-dir ./runs/si
 
 # Batch mode: one query per line in a text file
 adam-identify --batch queries.txt --model gemini-3.1-pro-preview --concurrency 5
@@ -226,7 +233,12 @@ The `Material` object carries:
 - `material.structure` — `CrystalStructure` or `MoleculeStructure` with coordinates
 - `material.properties[0]` — `MaterialsProjectProperties` with band gap, energy above hull, etc.
 
-`IdentificationResult.trace` records extraction, candidate lists, selection decisions, `outcome`, and `needs_review`.
+`IdentificationResult.trace` is a full `Trace`: extraction, candidate lists,
+selection decisions, `identification.outcome`, `needs_review`, LLM call records
+(prompts, responses, models, tokens), artifacts, and failures. Persist it with
+`work_dir=`; the CLI always writes `adam.json` under `--work-dir` or
+`./identification_runs/<timestamp>/`. There are no provenance tiers — the saved
+record is always complete.
 
 ---
 
@@ -234,7 +246,10 @@ The `Material` object carries:
 
 `IdentificationSession` wraps `MaterialIdentifier` with cached pipeline state so
 that when a query is ambiguous the user can provide one follow-up without repeating
-the database lookup.
+the database lookup. Each `identify()` / `resume()` / `identify_choice()` call is
+its own `Trace`. Ambiguity and clarification complete the parent run
+(`status=COMPLETED`, `identification.outcome` of `ambiguous` or `clarify`).
+`resume()` starts a linked child with `parent_run_id` set to the parent `run_id`.
 
 ```python
 from adam_identification import IdentificationSession, MaterialIdentifier
@@ -279,7 +294,8 @@ except ClarificationNeededError as exc:
 print(material.mp_id, material.structure.space_group)
 ```
 
-For headless / benchmark use, call `MaterialIdentifier.identify()` directly — the session layer is optional.
+For headless / benchmark use, call `identify()` or
+`MaterialIdentifier.identify(query, trace=trace)` — the session layer is optional.
 
 ---
 

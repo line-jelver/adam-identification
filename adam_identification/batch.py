@@ -3,6 +3,9 @@
 Identifies multiple materials concurrently using the async LLM layer. A
 semaphore limits simultaneous in-flight requests to avoid API rate limits.
 
+Each query creates and binds its own :class:`~adam_identification.provenance.trace.Trace`
+inside the worker thread (``run_in_executor`` does not copy ContextVars).
+
 Example::
 
     from adam_identification import batch_identify
@@ -24,49 +27,90 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Literal
 
-from adam_identification.identifier import MaterialIdentifier
 from adam_identification.models import Material
 from adam_identification.result import IdentificationResult
 
 logger = logging.getLogger(__name__)
 
 
+def _safe_stem(query: str, *, limit: int = 40) -> str:
+    """Filesystem-safe stem derived from a query string."""
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in query).strip("_")
+    return (safe or "query")[:limit]
+
+
+def _query_work_dir(work_dir: Path, index: int, query: str) -> Path:
+    """Per-query subdirectory under a batch work dir."""
+    return Path(work_dir) / f"{index:03d}_{_safe_stem(query)}"
+
+
 def _run_one(
     query: str,
-    identifier: MaterialIdentifier,
+    index: int,
+    *,
+    provider: str,
+    model: str | None,
+    mp_api_key: str | None,
     output: Literal["ase", "pymatgen", "material", "result"],
+    minimal_interaction: bool,
+    work_dir: Path | None,
+    save_dir: Path | None,
 ) -> Material | IdentificationResult:
-    """Identify one query, optionally returning the provenance trace."""
-    if output == "result":
-        from adam_identification.output import to_ase
+    """Identify one query under a fresh Trace bound in this worker thread."""
+    from adam_identification.output import to_ase
+    from adam_identification.provenance.lifecycle import run_identification
 
-        material, trace = identifier.identify(query, return_trace=True)
+    query_dir = _query_work_dir(work_dir, index, query) if work_dir is not None else None
+    save_stem = f"{index:03d}_{_safe_stem(query)}" if save_dir is not None else None
+    material, trace = run_identification(
+        query,
+        provider=provider,
+        model=model,
+        mp_api_key=mp_api_key,
+        minimal_interaction=minimal_interaction,
+        work_dir=query_dir,
+        write_artifacts=query_dir is not None or save_dir is not None,
+        save_dir=save_dir,
+        save_stem=save_stem,
+    )
+    if output == "result":
         return IdentificationResult(atoms=to_ase(material), material=material, trace=trace)
-    return identifier.identify(query)
+    return material
 
 
 async def _identify_one(
     query: str,
-    identifier: MaterialIdentifier,
+    index: int,
     semaphore: asyncio.Semaphore,
+    *,
+    provider: str,
+    model: str | None,
+    mp_api_key: str | None,
     output: Literal["ase", "pymatgen", "material", "result"],
+    minimal_interaction: bool,
+    work_dir: Path | None,
+    save_dir: Path | None,
 ) -> Material | IdentificationResult:
-    """Identify a single query under a shared concurrency semaphore.
-
-    Args:
-        query: Natural-language material description.
-        identifier: Shared :class:`~adam_identification.identifier.MaterialIdentifier`.
-        semaphore: Concurrency limiter.
-        output: Requested output type; ``"result"`` requests a trace.
-
-    Returns:
-        Identified material or :class:`~adam_identification.result.IdentificationResult`.
-    """
+    """Identify a single query under a shared concurrency semaphore."""
     async with semaphore:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _run_one, query, identifier, output)
+        return await loop.run_in_executor(
+            None,
+            lambda: _run_one(
+                query,
+                index,
+                provider=provider,
+                model=model,
+                mp_api_key=mp_api_key,
+                output=output,
+                minimal_interaction=minimal_interaction,
+                work_dir=work_dir,
+                save_dir=save_dir,
+            ),
+        )
 
 
 async def batch_identify_async(
@@ -78,6 +122,8 @@ async def batch_identify_async(
     concurrency: int = 5,
     output: Literal["ase", "pymatgen", "material", "result"] = "material",
     minimal_interaction: bool = False,
+    work_dir: Path | None = None,
+    save_dir: Path | None = None,
 ) -> list[Material | IdentificationResult | Exception]:
     """Identify multiple materials concurrently (async version).
 
@@ -88,28 +134,36 @@ async def batch_identify_async(
         model: Required model slug. There is no default.
         mp_api_key: Materials Project API key. Falls back to environment variable.
         concurrency: Maximum simultaneous in-flight requests.
-        output: ``"result"`` fetches a trace; other values return ``Material``.
+        output: ``"result"`` returns a trace; other values return ``Material``.
         minimal_interaction: When ``True``, always select and flag
             ``needs_review`` instead of raising on ambiguity.
+        work_dir: When set, persist each query under a numbered subdirectory.
+        save_dir: Optional extra directory for structure files (CLI ``--save-dir``).
 
     Returns:
         List of :class:`~adam_identification.models.Material`,
         :class:`~adam_identification.result.IdentificationResult`, or
         :class:`Exception` instances, one per query (order preserved).
     """
-    from adam_identification.database.materials_project import MaterialsProjectClient
-    from adam_identification.database.pubchem import PubChemClient
-    from adam_identification.llm import get_provider
-
-    llm = get_provider(provider, model)
-    mp_client = MaterialsProjectClient(api_key=mp_api_key)
-    pubchem_client = PubChemClient()
-    identifier = MaterialIdentifier(
-        llm, mp_client, pubchem_client, minimal_interaction=minimal_interaction
-    )
+    if work_dir is not None:
+        Path(work_dir).mkdir(parents=True, exist_ok=True)
 
     semaphore = asyncio.Semaphore(concurrency)
-    tasks = [_identify_one(q, identifier, semaphore, output) for q in queries]
+    tasks = [
+        _identify_one(
+            q,
+            i,
+            semaphore,
+            provider=provider,
+            model=model,
+            mp_api_key=mp_api_key,
+            output=output,
+            minimal_interaction=minimal_interaction,
+            work_dir=work_dir,
+            save_dir=save_dir,
+        )
+        for i, q in enumerate(queries, start=1)
+    ]
     results: list[Material | IdentificationResult | Exception] = []
     raw = await asyncio.gather(*tasks, return_exceptions=True)
     for item in raw:
@@ -126,6 +180,8 @@ def batch_identify(
     concurrency: int = 5,
     output: Literal["ase", "pymatgen", "material", "result"] = "ase",
     minimal_interaction: bool = False,
+    work_dir: Path | None = None,
+    save_dir: Path | None = None,
 ) -> list[object]:
     """Identify multiple materials concurrently (synchronous wrapper).
 
@@ -142,6 +198,8 @@ def batch_identify(
             (:class:`~adam_identification.result.IdentificationResult`).
         minimal_interaction: When ``True``, always select and flag
             ``needs_review`` instead of raising on ambiguity.
+        work_dir: When set, persist each query under a numbered subdirectory.
+        save_dir: Optional extra directory for structure files.
 
     Returns:
         List of converted objects or :class:`Exception` instances (order
@@ -166,6 +224,8 @@ def batch_identify(
             concurrency=concurrency,
             output=output,
             minimal_interaction=minimal_interaction,
+            work_dir=work_dir,
+            save_dir=save_dir,
         )
     )
 

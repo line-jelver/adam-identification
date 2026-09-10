@@ -13,6 +13,7 @@ from adam_identification.exceptions import (
     MaterialNotFoundError,
 )
 from adam_identification.identifier import MaterialIdentifier, _formulas_match
+from adam_identification.provenance.trace import Trace
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,11 @@ def _make_identifier(
         mock_pubchem = None
 
     return MaterialIdentifier(llm=mock_llm, mp_client=mock_mp, pubchem_client=mock_pubchem)
+
+
+def _trace(query: str) -> Trace:
+    """Fresh provenance Trace for identifier unit tests."""
+    return Trace(query=query)
 
 
 def _mock_molecule_material(
@@ -131,7 +137,7 @@ def test_extract_formula_clarify_raises_clarification_error() -> None:
         }
     )
     with pytest.raises(ClarificationNeededError) as exc_info:
-        identifier.identify("iron oxide")
+        identifier.identify("iron oxide", trace=_trace("iron oxide"))
     err = exc_info.value
     assert "iron oxide" in err.user_message
     assert len(err.suggested_queries) == 2
@@ -172,11 +178,17 @@ def test_identify_molecule_routes_to_pubchem() -> None:
     mock_mp = MagicMock()
     identifier = MaterialIdentifier(llm=mock_llm, mp_client=mock_mp, pubchem_client=mock_pubchem)
 
-    result = identifier.identify("water")
+    trace = _trace("water")
+    result = identifier.identify("water", trace=trace)
     assert result is mol_material
     mock_pubchem.get_molecule_candidates.assert_called_once_with("water")
     mock_pubchem.get_by_cid.assert_called_once_with(962)
     mock_mp.search_by_formula.assert_not_called()
+    assert trace.identification.domain == "molecule"
+    assert trace.identification.n_candidates_narrow == 1
+    assert trace.identification.candidates_shown_narrow[0]["cid"] == 962
+    assert trace.identification.narrow_selection is not None
+    assert trace.identification.outcome == "selected"
 
 
 def test_identify_molecule_raises_when_no_pubchem_client() -> None:
@@ -190,7 +202,7 @@ def test_identify_molecule_raises_when_no_pubchem_client() -> None:
     identifier = MaterialIdentifier(llm=mock_llm, mp_client=MagicMock(), pubchem_client=None)
 
     with pytest.raises(ValueError, match="PubChemClient"):
-        identifier.identify("water")
+        identifier.identify("water", trace=_trace("water"))
 
 
 def test_identify_crystal_does_not_call_pubchem() -> None:
@@ -208,7 +220,7 @@ def test_identify_crystal_does_not_call_pubchem() -> None:
 
     identifier = MaterialIdentifier(llm=mock_llm, mp_client=mock_mp, pubchem_client=mock_pubchem)
     with pytest.raises(MaterialNotFoundError):
-        identifier.identify("silicon")
+        identifier.identify("silicon", trace=_trace("silicon"))
 
     mock_pubchem.get_by_name.assert_not_called()
 
@@ -250,7 +262,7 @@ def test_ambiguous_molecule_raises_ambiguous_identification_error() -> None:
         llm=mock_llm, mp_client=MagicMock(), pubchem_client=mock_pubchem
     )
     with pytest.raises(AmbiguousIdentificationError) as exc_info:
-        identifier.identify("xylene")
+        identifier.identify("xylene", trace=_trace("xylene"))
     err = exc_info.value
     assert err.domain == "molecule"
     assert len(err.candidates) == 2

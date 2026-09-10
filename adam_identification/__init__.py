@@ -63,15 +63,15 @@ from adam_identification.exceptions import (
 )
 from adam_identification.identifier import MaterialIdentifier
 from adam_identification.models import Material
+from adam_identification.provenance.trace import IdentificationSection, Trace
 from adam_identification.result import IdentificationResult
 from adam_identification.session import IdentificationSession
-from adam_identification.trace import IdentificationTrace
 
 if TYPE_CHECKING:
     import ase
     import pymatgen.core
 
-__version__ = "1.4.0"
+__version__ = "2.0.0"
 
 
 def batch_identify(
@@ -83,8 +83,11 @@ def batch_identify(
     concurrency: int = 5,
     output: Literal["ase", "pymatgen", "material", "result"] = "ase",
     minimal_interaction: bool = False,
+    work_dir: str | None = None,
 ) -> list:
     """Identify multiple materials concurrently. See :mod:`adam_identification.batch`."""
+    from pathlib import Path
+
     from adam_identification.batch import batch_identify as _batch_identify
 
     return _batch_identify(
@@ -95,6 +98,7 @@ def batch_identify(
         concurrency=concurrency,
         output=output,
         minimal_interaction=minimal_interaction,
+        work_dir=Path(work_dir) if work_dir is not None else None,
     )
 
 
@@ -105,7 +109,8 @@ __all__ = [
     "IdentificationSession",
     "Material",
     "IdentificationResult",
-    "IdentificationTrace",
+    "IdentificationSection",
+    "Trace",
     "AmbiguousIdentificationError",
     "ClarificationNeededError",
     "IdentificationError",
@@ -129,80 +134,55 @@ def identify(
     output: Literal["ase", "pymatgen", "material", "result"] = "ase",
     mp_api_key: str | None = None,
     minimal_interaction: bool = False,
+    work_dir: str | None = None,
 ) -> (
     ase.Atoms | pymatgen.core.IStructure | pymatgen.core.IMolecule | Material | IdentificationResult
 ):
     """Identify a material from a natural-language description.
 
-    Uses the database-grounded workflow: the language model extracts the
-    chemical formula and any disambiguation hints, then the Materials Project
-    (for crystals) or PubChem (for molecules) supplies the 3D geometry.
+    Always constructs a provenance :class:`~adam_identification.provenance.trace.Trace`.
+    Persist it when ``work_dir`` is set. Return it only for ``output="result"``.
 
     Args:
         query: Natural-language description, e.g. ``"silicon"`` or
             ``"caffeine"``.
         provider: LLM provider key — ``"google"`` (default), ``"openai"``,
-            ``"anthropic"``, or ``"openrouter"``. Model slugs remain
-            ``gemini-*`` for Google models.
+            ``"anthropic"``, or ``"openrouter"``.
         model: Required model slug. There is no default.
-        output: Return type — ``"ase"`` (default, :class:`ase.Atoms`),
-            ``"pymatgen"`` (:class:`pymatgen.core.Structure` or
-            :class:`pymatgen.core.Molecule`), ``"material"`` (raw
-            :class:`~adam_identification.models.Material`), or ``"result"``
-            (:class:`~adam_identification.result.IdentificationResult` with
-            atoms, material, and trace).
-        mp_api_key: Materials Project API key. Falls back to the
-            ``MATERIALS_PROJECT_API_KEY`` environment variable.
-        minimal_interaction: When ``True``, the LLM always selects a candidate
-            and flags uncertain choices with ``trace.needs_review``. When
-            ``False`` (default), underspecified queries raise
-            :class:`~adam_identification.exceptions.AmbiguousIdentificationError`.
+        output: Return type — ``"ase"`` (default), ``"pymatgen"``,
+            ``"material"``, or ``"result"`` (atoms, material, and full Trace).
+        mp_api_key: Materials Project API key.
+        minimal_interaction: When ``True``, always select and flag
+            ``trace.needs_review``.
+        work_dir: When set, write ``adam.json`` and a structure file here.
 
     Returns:
-        ``ase.Atoms``, ``pymatgen.core.Structure``, ``pymatgen.core.Molecule``,
-        :class:`~adam_identification.models.Material`, or
-        :class:`~adam_identification.result.IdentificationResult` depending on
-        ``output``.
-
-    Raises:
-        ConfigurationError: If ``model`` is omitted.
-        MaterialNotFoundError: If the database search returns no usable match.
-        AmbiguousIdentificationError: If the formula is in the database but the
-            query lacks enough information to pick one candidate.
-        ClarificationNeededError: If composition or domain cannot be determined.
-        DatabaseAPIError: On API/network failures.
-        LLMError: On LLM provider failures (rate limits, auth errors, etc.).
-        ValueError: If the LLM returns an empty formula.
+        Converted structure, :class:`~adam_identification.models.Material`, or
+        :class:`~adam_identification.result.IdentificationResult`.
 
     Example::
 
-        from adam_identification import identify
-
-        atoms = identify("silicon", model="gemini-3.1-pro-preview")
-        atoms = identify("water", model="gemini-3.1-pro-preview")
-        s = identify("BCC iron", model="gemini-3.1-pro-preview", output="pymatgen")
         result = identify("silicon", model="gemini-3.1-pro-preview", output="result")
-        result.trace.outcome
+        result.trace.identification.outcome
     """
-    from adam_identification.database.materials_project import MaterialsProjectClient
-    from adam_identification.database.pubchem import PubChemClient
-    from adam_identification.llm import get_provider
-    from adam_identification.output import to_ase, to_pymatgen
+    from pathlib import Path
 
-    llm = get_provider(provider, model)
-    mp_client = MaterialsProjectClient(api_key=mp_api_key)
-    pubchem_client = PubChemClient()
-    identifier = MaterialIdentifier(
-        llm, mp_client, pubchem_client, minimal_interaction=minimal_interaction
+    from adam_identification.output import to_ase, to_pymatgen
+    from adam_identification.provenance.lifecycle import run_identification
+
+    wd = Path(work_dir) if work_dir is not None else None
+    material, trace = run_identification(
+        query,
+        provider=provider,
+        model=model,
+        mp_api_key=mp_api_key,
+        minimal_interaction=minimal_interaction,
+        work_dir=wd,
+        write_artifacts=wd is not None,
     )
 
     if output == "result":
-        material, trace = identifier.identify(query, return_trace=True)
-        atoms = to_ase(material)
-        return IdentificationResult(atoms=atoms, material=material, trace=trace)
-
-    material = identifier.identify(query)
-
+        return IdentificationResult(atoms=to_ase(material), material=material, trace=trace)
     if output == "material":
         return material
     if output == "pymatgen":

@@ -19,7 +19,12 @@ LLM providers raise:
       ``InvalidResponseError``.
 """
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from adam_identification.provenance.trace import Trace
 
 # Default user-facing table size. Full lists remain on ``.candidates``.
 _DISPLAY_CANDIDATE_LIMIT = 8
@@ -27,6 +32,12 @@ _DISPLAY_CANDIDATE_LIMIT = 8
 
 class IdentificationError(Exception):
     """Base class for all adam-identification errors."""
+
+    trace: Trace | None
+
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+        self.trace = None
 
 
 class DatabaseError(IdentificationError):
@@ -51,7 +62,7 @@ class ClarificationNeededError(MaterialNotFoundError):
         user_message: A concise explanation from the LLM describing what
             information is missing.
         suggested_queries: Up to five reliable example follow-up queries.
-        trace: Optional :class:`~adam_identification.trace.IdentificationTrace`.
+        trace: Optional :class:`~adam_identification.provenance.trace.Trace`.
     """
 
     def __init__(
@@ -64,7 +75,7 @@ class ClarificationNeededError(MaterialNotFoundError):
         super().__init__(message)
         self.user_message = user_message
         self.suggested_queries: list[str] = suggested_queries or []
-        self.trace: Any = None
+        self.trace = None
 
     def __str__(self) -> str:
         lines = [self.user_message or super().__str__()]
@@ -94,7 +105,7 @@ class AmbiguousIdentificationError(MaterialNotFoundError):
             and what the user should specify next.
         suggested_candidates: Structured follow-up suggestions from the LLM.
             Each dict has ``index`` (int) and ``suggested_query`` (str).
-        trace: Optional :class:`~adam_identification.trace.IdentificationTrace`.
+        trace: Optional :class:`~adam_identification.provenance.trace.Trace`.
     """
 
     def __init__(
@@ -115,7 +126,7 @@ class AmbiguousIdentificationError(MaterialNotFoundError):
         self.candidates: list[dict[str, Any]] = candidates or []
         self.user_message: str | None = user_message
         self.suggested_candidates: list[dict[str, Any]] = suggested_candidates or []
-        self.trace: Any = None
+        self.trace = None
 
     def __str__(self) -> str:
         base = super().__str__()

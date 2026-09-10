@@ -50,6 +50,8 @@ class OpenAIProvider(BaseLLM):
         self._api_key = settings.openai_api_key
         self._model = model
         self._base_url = _OPENAI_URL
+        self.provider = "openai"
+        self.requested_model = model
 
     def _headers(self) -> dict[str, str]:
         return {

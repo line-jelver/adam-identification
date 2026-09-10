@@ -7,10 +7,12 @@ Usage::
     adam-identify "BCC iron" --provider anthropic --model claude-haiku-4-5-20251001
     adam-identify --batch queries.txt --model gemini-3.1-pro-preview --save-dir results/
     adam-identify --list-providers
+    adam-identify "silicon" --model gemini-3.1-pro-preview --work-dir ./runs/si
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -95,6 +97,14 @@ def identify_cmd(
         Path | None,
         typer.Option("--save-dir", help="Directory for batch output files (one per query)."),
     ] = None,
+    work_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--work-dir",
+            help="Directory for adam.json and copied structure files. "
+            "Default: ./identification_runs/<timestamp>/.",
+        ),
+    ] = None,
     concurrency: Annotated[
         int,
         typer.Option("--concurrency", "-c", help="Max concurrent requests in batch mode."),
@@ -151,6 +161,10 @@ def identify_cmd(
         err_console.print(f"[red]Error:[/red] {MISSING_MODEL_MESSAGE}")
         raise typer.Exit(1)
 
+    resolved_work_dir = work_dir or _default_work_dir()
+    resolved_work_dir.mkdir(parents=True, exist_ok=True)
+    console.print(f"[dim]Work dir:[/dim] {resolved_work_dir}")
+
     if batch is not None:
         _run_batch(
             batch_file=batch,
@@ -160,6 +174,7 @@ def identify_cmd(
             concurrency=concurrency,
             mp_api_key=mp_api_key,
             minimal_interaction=minimal_interaction,
+            work_dir=resolved_work_dir,
         )
     else:
         assert query is not None
@@ -171,6 +186,31 @@ def identify_cmd(
             mp_api_key=mp_api_key,
             minimal_interaction=minimal_interaction,
             verbose=verbose,
+            work_dir=resolved_work_dir,
+        )
+
+
+def _default_work_dir() -> Path:
+    """Return ``./identification_runs/<UTC stamp>/``."""
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return Path("identification_runs") / stamp
+
+
+def _print_artifacts(trace: object) -> None:
+    """Print saved artifact paths from a completed Trace."""
+    artifacts = getattr(trace, "artifacts", None) or []
+    wrote_cif = False
+    for art in artifacts:
+        path = getattr(art, "path", None)
+        if path:
+            console.print(f"  Saved: [cyan]{path}[/cyan]")
+        fmt = getattr(art, "format", None)
+        if fmt == "cif" or (isinstance(path, str) and path.lower().endswith(".cif")):
+            wrote_cif = True
+    if wrote_cif:
+        console.print(
+            "  [dim]Note: ASE exports the primitive cell (often as P1), "
+            "not the conventional crystallographic cell.[/dim]"
         )
 
 
@@ -182,59 +222,68 @@ def _run_single(
     mp_api_key: str | None,
     minimal_interaction: bool,
     verbose: bool,
+    work_dir: Path,
 ) -> None:
-    from adam_identification.database.materials_project import MaterialsProjectClient
-    from adam_identification.database.pubchem import PubChemClient
     from adam_identification.exceptions import (
         AmbiguousIdentificationError,
         ClarificationNeededError,
+        MaterialNotFoundError,
     )
-    from adam_identification.identifier import MaterialIdentifier
-    from adam_identification.llm import get_provider as _get_provider
-    from adam_identification.trace import IdentificationTrace
+    from adam_identification.provenance.lifecycle import run_identification
 
-    llm = _get_provider(provider, model)
-    mp_client = MaterialsProjectClient(api_key=mp_api_key)
-    pubchem_client = PubChemClient()
-    identifier = MaterialIdentifier(
-        llm, mp_client, pubchem_client, minimal_interaction=minimal_interaction
-    )
-
-    # In verbose mode skip the spinner so DEBUG log lines aren't overwritten.
-    # Otherwise run inside a status spinner, but capture any exception and only
-    # print it *after* the spinner stops to prevent output collisions.
-    _caught: Exception | None = None
+    extra = [save] if save is not None else None
+    _caught: BaseException | None = None
+    material = None
+    trace = None
     if verbose:
         console.print(f"[bold]Identifying:[/bold] {query}")
         try:
-            material, trace = identifier.identify(query, return_trace=True)
-        except Exception as _exc:
+            material, trace = run_identification(
+                query,
+                provider=provider,
+                model=model,
+                mp_api_key=mp_api_key,
+                minimal_interaction=minimal_interaction,
+                work_dir=work_dir,
+                extra_save_paths=extra,
+                write_artifacts=True,
+            )
+        except BaseException as _exc:
             _caught = _exc
     else:
         with console.status(f"[bold]Identifying:[/bold] {query}"):
             try:
-                material, trace = identifier.identify(query, return_trace=True)
-            except Exception as _exc:
+                material, trace = run_identification(
+                    query,
+                    provider=provider,
+                    model=model,
+                    mp_api_key=mp_api_key,
+                    minimal_interaction=minimal_interaction,
+                    work_dir=work_dir,
+                    extra_save_paths=extra,
+                    write_artifacts=True,
+                )
+            except BaseException as _exc:
                 _caught = _exc
 
-    # Spinner has now stopped — safe to print without line collisions.
     if _caught is not None:
-        err_console.print()  # blank line separates from the spinner/header line
+        err_console.print()
         if isinstance(_caught, AmbiguousIdentificationError):
             _print_ambiguous(_caught, verbose=verbose)
             raise typer.Exit(1) from _caught
         if isinstance(_caught, ClarificationNeededError):
             err_console.print(f"[yellow]Clarification needed:[/yellow] {_caught}")
             raise typer.Exit(1) from _caught
+        if isinstance(_caught, MaterialNotFoundError):
+            err_console.print(f"[red]Not found:[/red] {_caught}")
+            raise typer.Exit(1) from _caught
+        if isinstance(_caught, (KeyboardInterrupt, SystemExit)):
+            raise _caught
         err_console.print(f"[red]Error:[/red] {_caught}")
         raise typer.Exit(1) from _caught
 
-    if not isinstance(trace, IdentificationTrace):
-        trace = IdentificationTrace(query=query, domain="crystal")  # type: ignore[arg-type]
     _print_material(material, query, trace=trace)
-
-    if save is not None:
-        _save_material(material, save)
+    _print_artifacts(trace)
 
 
 def _run_batch(
@@ -245,6 +294,7 @@ def _run_batch(
     concurrency: int,
     mp_api_key: str | None,
     minimal_interaction: bool,
+    work_dir: Path,
 ) -> None:
     from adam_identification.batch import batch_identify
     from adam_identification.models import Material
@@ -270,10 +320,9 @@ def _run_batch(
         concurrency=concurrency,
         output="material",
         minimal_interaction=minimal_interaction,
+        work_dir=work_dir,
+        save_dir=save_dir,
     )
-
-    if save_dir is not None:
-        save_dir.mkdir(parents=True, exist_ok=True)
 
     success = 0
     failure = 0
@@ -298,11 +347,6 @@ def _run_batch(
                 result_str = f"[green]{mat.chemical_formula}[/green] (molecule)"
             db_id = mat.mp_id or (f"CID {mat.pc_cid}" if mat.pc_cid else "")
             table.add_row(str(i + 1), q, result_str, db_id)
-
-            if save_dir is not None:
-                safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in q)
-                ext = ".cif" if mat.material_type == "crystal" else ".xyz"
-                _save_material(mat, save_dir / f"{i + 1:03d}_{safe_name}{ext}")
 
     console.print(table)
     console.print(
@@ -421,8 +465,9 @@ def _print_material(material: object, query: str, *, trace: object | None = None
 
     needs_review = bool(getattr(trace, "needs_review", False))
     if needs_review:
-        reason = str(getattr(trace, "selection_reason", "") or "").strip()
-        suggestions = getattr(trace, "suggested_candidates", None) or []
+        ident = getattr(trace, "identification", None)
+        reason = str(getattr(ident, "selection_reason", "") or "").strip()
+        suggestions = getattr(ident, "suggested_candidates", None) or []
         alt_parts = [
             str(item.get("suggested_query", "")).strip()
             for item in suggestions
@@ -437,41 +482,6 @@ def _print_material(material: object, query: str, *, trace: object | None = None
         if alt_parts:
             review_text += "\n  Alternatives: " + "; ".join(alt_parts)
         console.print(Panel(review_text, title="minimal-interaction", expand=False))
-
-
-def _save_material(material: object, path: Path) -> None:
-    from adam_identification.models import Material
-    from adam_identification.output import to_ase
-
-    if not isinstance(material, Material):
-        return
-
-    try:
-        import ase.io as ase_io
-    except ImportError:
-        err_console.print("[yellow]Warning:[/yellow] ase not available; skipping save.")
-        return
-
-    try:
-        atoms = to_ase(material)
-        ext = path.suffix.lower()
-        if ext == ".cif":
-            fmt = "cif"
-        elif ext in (".xyz", ".extxyz"):
-            fmt = "extxyz"
-        elif path.name in ("POSCAR", "CONTCAR") or ext == ".vasp":
-            fmt = "vasp"
-        else:
-            fmt = None  # let ASE auto-detect
-        ase_io.write(str(path), atoms, format=fmt)
-        console.print(f"  Saved: [cyan]{path}[/cyan]")
-        if ext == ".cif":
-            console.print(
-                "  [dim]Note: ASE exports the primitive cell (often as P1), "
-                "not the conventional crystallographic cell.[/dim]"
-            )
-    except Exception as exc:
-        err_console.print(f"[yellow]Warning:[/yellow] Could not save to {path}: {exc}")
 
 
 def main() -> None:

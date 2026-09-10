@@ -1,0 +1,684 @@
+{
+  "$defs": {
+    "ArtifactRecord": {
+      "description": "A structure file written for this run.",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "kind": {
+          "const": "structure",
+          "default": "structure",
+          "title": "Kind",
+          "type": "string"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "ArtifactRecord",
+      "type": "object"
+    },
+    "EnvironmentRecord": {
+      "description": "Package and interpreter versions for this run.",
+      "properties": {
+        "adam_identification_version": {
+          "title": "Adam Identification Version",
+          "type": "string"
+        },
+        "python_version": {
+          "title": "Python Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adam_identification_version",
+        "python_version"
+      ],
+      "title": "EnvironmentRecord",
+      "type": "object"
+    },
+    "FailureRecord": {
+      "description": "Observed failure during an identification run.",
+      "properties": {
+        "failure_id": {
+          "title": "Failure Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/IdentificationStage"
+        },
+        "exc_type": {
+          "title": "Exc Type",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "exc_type",
+        "message"
+      ],
+      "title": "FailureRecord",
+      "type": "object"
+    },
+    "IdentificationSection": {
+      "description": "Decision trail for crystals and molecules (shared field names).\n\nNarrow is the first candidate search and selection. Wide is the expanded\nsearch when the narrow decision was ``not_found`` (crystals today; molecules\nleave wide fields unset). Candidate dict keys may differ by database.",
+      "properties": {
+        "domain": {
+          "default": "unknown",
+          "enum": [
+            "crystal",
+            "molecule",
+            "unknown"
+          ],
+          "title": "Domain",
+          "type": "string"
+        },
+        "extraction": {
+          "additionalProperties": true,
+          "title": "Extraction",
+          "type": "object"
+        },
+        "n_candidates_narrow": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Candidates Narrow"
+        },
+        "candidates_shown_narrow": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Candidates Shown Narrow",
+          "type": "array"
+        },
+        "n_candidates_wide": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Candidates Wide"
+        },
+        "candidates_shown_wide": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Candidates Shown Wide",
+          "type": "array"
+        },
+        "narrow_selection": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Narrow Selection"
+        },
+        "wide_selection": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wide Selection"
+        },
+        "selection_decision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection Decision"
+        },
+        "selection_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection Reason"
+        },
+        "clarification_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Clarification Message"
+        },
+        "suggested_candidates": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggested Candidates"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "enum": [
+                "selected",
+                "not_found",
+                "ambiguous",
+                "clarify"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outcome"
+        },
+        "selected_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Id"
+        },
+        "needs_review": {
+          "default": false,
+          "title": "Needs Review",
+          "type": "boolean"
+        }
+      },
+      "title": "IdentificationSection",
+      "type": "object"
+    },
+    "IdentificationStage": {
+      "description": "Pipeline region recorded on :class:`FailureRecord` and ``current_stage``.",
+      "enum": [
+        "initialization",
+        "llm",
+        "database_search",
+        "selection",
+        "output_conversion",
+        "persistence"
+      ],
+      "title": "IdentificationStage",
+      "type": "string"
+    },
+    "LLMCallRecord": {
+      "description": "Provenance for one LLM API call.",
+      "properties": {
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "purpose": {
+          "default": "unknown",
+          "title": "Purpose",
+          "type": "string"
+        },
+        "provider": {
+          "default": "",
+          "title": "Provider",
+          "type": "string"
+        },
+        "requested_model": {
+          "default": "",
+          "title": "Requested Model",
+          "type": "string"
+        },
+        "provider_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Model"
+        },
+        "requested_at": {
+          "format": "date-time",
+          "title": "Requested At",
+          "type": "string"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completed At"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/LLMMessage"
+          },
+          "title": "Messages",
+          "type": "array"
+        },
+        "response": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Response"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "exc_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exc Type"
+        },
+        "prompt_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Tokens"
+        },
+        "completion_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completion Tokens"
+        },
+        "total_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Tokens"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "response_format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Response Format"
+        },
+        "rate_limit_retries": {
+          "default": 0,
+          "title": "Rate Limit Retries",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "requested_at"
+      ],
+      "title": "LLMCallRecord",
+      "type": "object"
+    },
+    "LLMMessage": {
+      "description": "One chat message sent to the provider.",
+      "properties": {
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "content"
+      ],
+      "title": "LLMMessage",
+      "type": "object"
+    },
+    "MaterialIdentity": {
+      "description": "Compact identity of the identified material.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "chemical_formula": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chemical Formula"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "mp_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mp Id"
+        },
+        "pc_cid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pc Cid"
+        },
+        "material_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "crystal",
+                "molecule"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Material Type"
+        },
+        "space_group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Space Group"
+        },
+        "crystal_system": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Crystal System"
+        }
+      },
+      "title": "MaterialIdentity",
+      "type": "object"
+    },
+    "TraceStatus": {
+      "description": "Lifecycle status of one identification run.",
+      "enum": [
+        "RUNNING",
+        "COMPLETED",
+        "FAILED"
+      ],
+      "title": "TraceStatus",
+      "type": "string"
+    }
+  },
+  "description": "Full provenance for one identification call.",
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
+    "status": {
+      "$ref": "#/$defs/TraceStatus",
+      "default": "RUNNING"
+    },
+    "query": {
+      "title": "Query",
+      "type": "string"
+    },
+    "material": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MaterialIdentity"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finished At"
+    },
+    "environment": {
+      "$ref": "#/$defs/EnvironmentRecord"
+    },
+    "llm_calls": {
+      "items": {
+        "$ref": "#/$defs/LLMCallRecord"
+      },
+      "title": "Llm Calls",
+      "type": "array"
+    },
+    "identification": {
+      "$ref": "#/$defs/IdentificationSection"
+    },
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRecord"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "failures": {
+      "items": {
+        "$ref": "#/$defs/FailureRecord"
+      },
+      "title": "Failures",
+      "type": "array"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "title": "Trace",
+  "type": "object"
+}

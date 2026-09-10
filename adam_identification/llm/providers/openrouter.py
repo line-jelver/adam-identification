@@ -17,6 +17,8 @@ class OpenRouterProvider(OpenAIProvider):
         self._api_key = settings.openrouter_api_key
         self._model = model
         self._base_url = _OPENROUTER_URL
+        self.provider = "openrouter"
+        self.requested_model = model
 
     def _headers(self) -> dict[str, str]:
         headers = super()._headers()

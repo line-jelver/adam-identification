@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "adam-identification"
-version = "1.4.0"
+version = "2.0.0"
 description = "Database-grounded LLM agent for atomistic structure identification from natural language"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -53,6 +53,7 @@ packages = ["adam_identification"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "adam_identification/templates" = "adam_identification/templates"
+"adam_identification/schemas" = "adam_identification/schemas"
 
 [tool.ruff]
 line-length = 100

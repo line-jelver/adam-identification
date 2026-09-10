@@ -47,6 +47,8 @@ class GeminiProvider(BaseLLM):
         self._api_key = settings.google_api_key
         self._model = model
         self._disable_thinking = disable_thinking
+        self.provider = "google"
+        self.requested_model = model
 
     def _url(self) -> str:
         # Key is passed as a header (x-goog-api-key), NOT as a URL query param,
