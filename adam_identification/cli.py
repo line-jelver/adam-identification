@@ -161,13 +161,17 @@ def identify_cmd(
         err_console.print(f"[red]Error:[/red] {MISSING_MODEL_MESSAGE}")
         raise typer.Exit(1)
 
+    batch_queries: list[str] | None = None
+    if batch is not None:
+        batch_queries = _read_batch_queries(batch)
+
     resolved_work_dir = work_dir or _default_work_dir()
     resolved_work_dir.mkdir(parents=True, exist_ok=True)
     console.print(f"[dim]Work dir:[/dim] {resolved_work_dir}")
 
-    if batch is not None:
+    if batch_queries is not None:
         _run_batch(
-            batch_file=batch,
+            queries=batch_queries,
             provider=provider,
             model=model,
             save_dir=save_dir,
@@ -194,6 +198,19 @@ def _default_work_dir() -> Path:
     """Return ``./identification_runs/<UTC stamp>/``."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     return Path("identification_runs") / stamp
+
+
+def _read_batch_queries(batch_file: Path) -> list[str]:
+    """Return non-empty queries from *batch_file*, or exit before creating a work dir."""
+    if not batch_file.exists():
+        err_console.print(f"[red]Error:[/red] Batch file not found: {batch_file}")
+        raise typer.Exit(1)
+
+    queries = [line.strip() for line in batch_file.read_text().splitlines() if line.strip()]
+    if not queries:
+        err_console.print("[red]Error:[/red] Batch file contains no queries.")
+        raise typer.Exit(1)
+    return queries
 
 
 def _print_artifacts(trace: object) -> None:
@@ -287,7 +304,7 @@ def _run_single(
 
 
 def _run_batch(
-    batch_file: Path,
+    queries: list[str],
     provider: str,
     model: str,
     save_dir: Path | None,
@@ -298,15 +315,6 @@ def _run_batch(
 ) -> None:
     from adam_identification.batch import batch_identify
     from adam_identification.models import Material
-
-    if not batch_file.exists():
-        err_console.print(f"[red]Error:[/red] Batch file not found: {batch_file}")
-        raise typer.Exit(1)
-
-    queries = [line.strip() for line in batch_file.read_text().splitlines() if line.strip()]
-    if not queries:
-        err_console.print("[red]Error:[/red] Batch file contains no queries.")
-        raise typer.Exit(1)
 
     console.print(
         f"Batch: [cyan]{len(queries)}[/cyan] queries, concurrency=[cyan]{concurrency}[/cyan]"
