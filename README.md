@@ -235,10 +235,10 @@ The `Material` object carries:
 
 `IdentificationResult.trace` is a full `Trace`: extraction, candidate lists,
 selection decisions, `identification.outcome`, `needs_review`, LLM call records
-(prompts, responses, models, tokens), artifacts, and failures. Persist it with
-`work_dir=`; the CLI always writes `adam.json` under `--work-dir` or
-`./identification_runs/<timestamp>/`. There are no provenance tiers — the saved
-record is always complete.
+(prompts, responses, models, tokens), artifacts, and failures.
+
+Persist it with `work_dir=`. The CLI always writes `adam.json` under `--work-dir`
+or `./identification_runs/<timestamp>/`.
 
 ---
 
@@ -293,10 +293,6 @@ except ClarificationNeededError as exc:
 
 print(material.mp_id, material.structure.space_group)
 ```
-
-For headless / benchmark use, call `identify()` or
-`MaterialIdentifier.identify(query, trace=trace)` — the session layer is optional.
-
 ---
 
 ## Error handling
