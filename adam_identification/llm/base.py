@@ -7,7 +7,7 @@ All agent code should target this interface. Provider-specific modules live in
 Usage:
     from adam_identification.llm import get_provider
 
-    provider = get_provider("google", model="gemini-2.5-flash")
+    provider = get_provider(model="gemini-2.5-flash")
     response = await provider.complete_single("Identify silicon")
 """
 

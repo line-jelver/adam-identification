@@ -12,7 +12,6 @@ Example::
 
     results = batch_identify(
         ["silicon", "water", "caffeine", "iron (bcc)"],
-        provider="google",
         model="gemini-2.5-flash",
         concurrency=5,
     )
@@ -51,7 +50,7 @@ def _run_one(
     query: str,
     index: int,
     *,
-    provider: str,
+    provider: str | None,
     model: str | None,
     mp_api_key: str | None,
     output: Literal["ase", "pymatgen", "material", "result"],
@@ -86,7 +85,7 @@ async def _identify_one(
     index: int,
     semaphore: asyncio.Semaphore,
     *,
-    provider: str,
+    provider: str | None,
     model: str | None,
     mp_api_key: str | None,
     output: Literal["ase", "pymatgen", "material", "result"],
@@ -116,7 +115,7 @@ async def _identify_one(
 async def batch_identify_async(
     queries: list[str],
     *,
-    provider: str = "google",
+    provider: str | None = None,
     model: str | None = None,
     mp_api_key: str | None = None,
     concurrency: int = 5,
@@ -130,7 +129,7 @@ async def batch_identify_async(
     Args:
         queries: List of natural-language material descriptions.
         provider: LLM provider key (``"openai"``, ``"anthropic"``,
-            ``"google"``, ``"openrouter"``).
+            ``"google"``, ``"openrouter"``). Omitted: inferred from ``model``.
         model: Required model slug. There is no default.
         mp_api_key: Materials Project API key. Falls back to environment variable.
         concurrency: Maximum simultaneous in-flight requests.
@@ -174,7 +173,7 @@ async def batch_identify_async(
 def batch_identify(
     queries: list[str],
     *,
-    provider: str = "google",
+    provider: str | None = None,
     model: str | None = None,
     mp_api_key: str | None = None,
     concurrency: int = 5,
@@ -188,7 +187,7 @@ def batch_identify(
     Args:
         queries: List of natural-language material descriptions.
         provider: LLM provider key (``"openai"``, ``"anthropic"``,
-            ``"google"``, ``"openrouter"``).
+            ``"google"``, ``"openrouter"``). Omitted: inferred from ``model``.
         model: Required model slug. There is no default.
         mp_api_key: Materials Project API key. Falls back to environment variable.
         concurrency: Maximum simultaneous in-flight requests.

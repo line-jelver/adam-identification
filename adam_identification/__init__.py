@@ -77,7 +77,7 @@ __version__ = "2.0.0"
 def batch_identify(
     queries: list[str],
     *,
-    provider: str = "google",
+    provider: str | None = None,
     model: str | None = None,
     mp_api_key: str | None = None,
     concurrency: int = 5,
@@ -129,7 +129,7 @@ __all__ = [
 def identify(
     query: str,
     *,
-    provider: str = "google",
+    provider: str | None = None,
     model: str | None = None,
     output: Literal["ase", "pymatgen", "material", "result"] = "ase",
     mp_api_key: str | None = None,
@@ -146,8 +146,10 @@ def identify(
     Args:
         query: Natural-language description, e.g. ``"silicon"`` or
             ``"caffeine"``.
-        provider: LLM provider key — ``"google"`` (default), ``"openai"``,
-            ``"anthropic"``, or ``"openrouter"``.
+        provider: LLM provider key — ``"google"``, ``"openai"``,
+            ``"anthropic"``, or ``"openrouter"``. Omitted: inferred from
+            ``model``. Pass ``"openrouter"`` to send a native slug through
+            that API.
         model: Required model slug. There is no default.
         output: Return type — ``"ase"`` (default), ``"pymatgen"``,
             ``"material"``, or ``"result"`` (atoms, material, and full Trace).

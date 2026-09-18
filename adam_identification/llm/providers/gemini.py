@@ -9,10 +9,9 @@ import httpx
 from adam_identification._config import ConfigurationError, settings
 from adam_identification.llm.base import BaseLLM, LLMResponse, Message, TokenUsage
 from adam_identification.llm.exceptions import (
-    AuthenticationError,
     InvalidResponseError,
     ProviderUnavailableError,
-    RateLimitError,
+    exception_for_http_status,
 )
 
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -114,16 +113,9 @@ class GeminiProvider(BaseLLM):
                 response.raise_for_status()
                 response_json = response.json()
         except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            if status == 429:
-                raise RateLimitError("Gemini rate limit exceeded.") from exc
-            if status == 401:
-                raise AuthenticationError("Gemini authentication failed.") from exc
-            if 500 <= status < 600:
-                raise ProviderUnavailableError(
-                    f"Gemini service unavailable (HTTP {status})."
-                ) from exc
-            raise ProviderUnavailableError(f"Gemini request failed (HTTP {status}).") from exc
+            raise exception_for_http_status(
+                "Gemini", exc.response.status_code, model=self._model
+            ) from exc
         except httpx.HTTPError as exc:
             raise ProviderUnavailableError(f"Gemini network error: {exc}") from exc
 

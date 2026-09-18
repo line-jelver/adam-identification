@@ -4,7 +4,8 @@ Usage::
 
     adam-identify "silicon" --model gemini-3.1-pro-preview
     adam-identify "glucose" --model gemini-3.1-pro-preview --save glucose.xyz
-    adam-identify "BCC iron" --provider anthropic --model claude-haiku-4-5-20251001
+    adam-identify "BCC iron" --model claude-haiku-4-5-20251001
+    adam-identify "silicon" --provider openrouter --model gpt-5.4-mini
     adam-identify --batch queries.txt --model gemini-3.1-pro-preview --save-dir results/
     adam-identify --list-providers
     adam-identify "silicon" --model gemini-3.1-pro-preview --work-dir ./runs/si
@@ -70,13 +71,15 @@ def identify_cmd(
         typer.Option("--batch", "-b", help="Text file with one query per line (batch mode)."),
     ] = None,
     provider: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--provider",
             "-p",
-            help="LLM provider: google, openai, anthropic, openrouter.",
+            help="LLM provider: google, openai, anthropic, openrouter. "
+            "Omitted: inferred from --model. Use openrouter to send a native "
+            "slug through that API.",
         ),
-    ] = "google",
+    ] = None,
     model: Annotated[
         str | None,
         typer.Option(
@@ -233,7 +236,7 @@ def _print_artifacts(trace: object) -> None:
 
 def _run_single(
     query: str,
-    provider: str,
+    provider: str | None,
     model: str,
     save: Path | None,
     mp_api_key: str | None,
@@ -305,7 +308,7 @@ def _run_single(
 
 def _run_batch(
     queries: list[str],
-    provider: str,
+    provider: str | None,
     model: str,
     save_dir: Path | None,
     concurrency: int,

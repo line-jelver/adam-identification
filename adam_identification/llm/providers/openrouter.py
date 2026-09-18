@@ -11,6 +11,8 @@ _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 class OpenRouterProvider(OpenAIProvider):
     """OpenRouter provider using the OpenAI-compatible API surface."""
 
+    _http_provider_name = "OpenRouter"
+
     def __init__(self, model: str = "meta-llama/llama-3.3-70b-instruct:free") -> None:
         if not settings.openrouter_api_key:
             raise ConfigurationError("OPENROUTER_API_KEY is not set. Add it to your .env file.")

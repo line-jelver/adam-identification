@@ -34,3 +34,13 @@ def test_empty_batch_file_does_not_create_work_dir(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "contains no queries" in result.output
     assert not work.exists()
+
+
+def test_unknown_model_without_provider_fails_to_infer(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    result = runner.invoke(
+        app,
+        ["silicon", "--model", "foo-bar", "--work-dir", str(work)],
+    )
+    assert result.exit_code == 1
+    assert "Cannot infer" in result.output

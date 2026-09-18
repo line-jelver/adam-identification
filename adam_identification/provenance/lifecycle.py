@@ -244,7 +244,7 @@ def scoped_identify(
 def run_identification(
     query: str,
     *,
-    provider: str = "google",
+    provider: str | None = None,
     model: str | None = None,
     mp_api_key: str | None = None,
     minimal_interaction: bool = False,

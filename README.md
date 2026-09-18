@@ -84,7 +84,7 @@ Smaller or cheaper models often fail to abstain on underspecified queries
 ```python
 from adam_identification import identify
 
-MODEL = "gemini-3.1-pro-preview"  # any model slug your provider accepts
+MODEL = "gemini-3.1-pro-preview"  # provider is inferred from the slug
 
 # Returns an ase.Atoms object (default)
 atoms = identify("silicon", model=MODEL)
@@ -95,10 +95,13 @@ atoms = identify("rutile TiO2", model=MODEL)
 structure = identify("silicon", model=MODEL, output="pymatgen")
 molecule = identify("caffeine", model=MODEL, output="pymatgen")
 
-# Other providers
-atoms = identify("silicon", provider="openai", model="gpt-5.4-mini")
-atoms = identify("water", provider="anthropic", model="claude-haiku-4-5-20251001")
-atoms = identify("iron (alpha)", provider="openrouter", model="deepseek/deepseek-chat-v3-5")
+# Provider is inferred from the model name; pass provider= only to override
+atoms = identify("silicon", model="gpt-5.4-mini")
+atoms = identify("water", model="claude-haiku-4-5-20251001")
+atoms = identify("iron (alpha)", model="deepseek/deepseek-chat-v3-5")
+# Dual-routed slugs default to the native API; force OpenRouter when wanted
+atoms = identify("silicon", provider="openrouter", model="gpt-5.4-mini")
+atoms = identify("silicon", provider="openrouter", model="openai/gpt-5.4-mini")
 
 # Access the raw Material object (includes MP properties)
 material = identify("silicon", model=MODEL, output="material")
@@ -156,7 +159,6 @@ queries = ["silicon", "water", "caffeine", "iron (BCC)", "alpha-alumina"]
 
 results = batch_identify(
     queries,
-    provider="google",
     model="gemini-3.1-pro-preview",
     concurrency=5,          # simultaneous API calls
     output="ase",           # or "pymatgen", "material", or "result"
@@ -172,12 +174,14 @@ for query, result in zip(queries, results):
 ### CLI
 
 ```bash
-# --model is required
+# --model is required; the provider is inferred from the slug
 adam-identify "silicon" --model gemini-3.1-pro-preview
 adam-identify "caffeine" --model gemini-3.1-pro-preview
+adam-identify "BCC iron" --model gpt-5.4-mini
 
-# Other provider
-adam-identify "BCC iron" --provider openai --model gpt-5.4-mini
+# Force OpenRouter for a slug that also has a native API
+adam-identify "silicon" --provider openrouter --model gpt-5.4-mini
+adam-identify "silicon" --provider openrouter --model openai/gpt-5.4-mini
 
 # Save to file (CIF for crystals, XYZ for molecules).
 # ASE writes the primitive cell (often P1), not the conventional cell.
@@ -206,7 +210,7 @@ On an ambiguous query the CLI prints a short table of Materials Project or PubCh
 
 The public provider key is **`google`**, not `gemini`. Model slugs stay `gemini-*`. The API key remains `GOOGLE_API_KEY`.
 
-There is no default model: pass `model=` / `--model` for every call.
+There is no default model: pass `model=` / `--model` for every call. The provider is inferred from the slug (`gemini-*` → `google`, `claude-*` → `anthropic`, `gpt-*` / `o1` / `o3` / `o4` → `openai`, `openai/` / `google/` / `anthropic/` → that native API with the prefix stripped, other `org/model` → `openrouter`). Pass `provider=` / `--provider` to override, including `openrouter` to keep an `openai/gpt-*` slug on OpenRouter. Unrecognized names fail immediately; they are not sent to Google.
 
 | Key | Models used in the paper | Notes |
 |---|---|---|
@@ -261,7 +265,7 @@ from adam_identification.exceptions import (
 )
 from adam_identification.llm import get_provider
 
-llm = get_provider("google", "gemini-3.1-pro-preview")
+llm = get_provider(model="gemini-3.1-pro-preview")
 identifier = MaterialIdentifier(
     llm,
     mp_client=MaterialsProjectClient(),

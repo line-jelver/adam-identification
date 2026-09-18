@@ -9,10 +9,9 @@ import httpx
 from adam_identification._config import ConfigurationError, settings
 from adam_identification.llm.base import BaseLLM, LLMResponse, Message, TokenUsage
 from adam_identification.llm.exceptions import (
-    AuthenticationError,
     InvalidResponseError,
     ProviderUnavailableError,
-    RateLimitError,
+    exception_for_http_status,
 )
 
 _OPENAI_URL = "https://api.openai.com/v1/chat/completions"
@@ -43,6 +42,8 @@ def openai_model_supports_explicit_temperature(model: str) -> bool:
 
 class OpenAIProvider(BaseLLM):
     """Provider for OpenAI chat-completions models."""
+
+    _http_provider_name = "OpenAI"
 
     def __init__(self, model: str = "gpt-5.4-nano") -> None:
         if not settings.openai_api_key:
@@ -110,25 +111,22 @@ class OpenAIProvider(BaseLLM):
                 response.raise_for_status()
                 response_json = response.json()
         except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            if status == 429:
-                raise RateLimitError("OpenAI rate limit exceeded.") from exc
-            if status == 401:
-                raise AuthenticationError("OpenAI authentication failed.") from exc
-            if 500 <= status < 600:
-                raise ProviderUnavailableError(
-                    f"OpenAI service unavailable (HTTP {status})."
-                ) from exc
-            raise ProviderUnavailableError(f"OpenAI request failed (HTTP {status}).") from exc
+            raise exception_for_http_status(
+                self._http_provider_name,
+                exc.response.status_code,
+                model=self._model,
+            ) from exc
         except httpx.HTTPError as exc:
-            raise ProviderUnavailableError(f"OpenAI network error: {exc}") from exc
+            raise ProviderUnavailableError(
+                f"{self._http_provider_name} network error: {exc}"
+            ) from exc
 
         choices = response_json.get("choices", [])
         if not choices:
-            raise InvalidResponseError("OpenAI response missing choices.")
+            raise InvalidResponseError(f"{self._http_provider_name} response missing choices.")
         content = choices[0].get("message", {}).get("content")
         if not isinstance(content, str) or not content.strip():
-            raise InvalidResponseError("OpenAI returned empty content.")
+            raise InvalidResponseError(f"{self._http_provider_name} returned empty content.")
         return LLMResponse(
             content=content,
             token_usage=self._token_usage(response_json),

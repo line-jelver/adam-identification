@@ -14,10 +14,9 @@ from adam_identification._config import ConfigurationError, settings
 from adam_identification._prompts import PromptLoader
 from adam_identification.llm.base import BaseLLM, LLMResponse, Message, TokenUsage
 from adam_identification.llm.exceptions import (
-    AuthenticationError,
     InvalidResponseError,
     ProviderUnavailableError,
-    RateLimitError,
+    exception_for_http_status,
 )
 
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -93,16 +92,9 @@ class AnthropicProvider(BaseLLM):
                 response.raise_for_status()
                 response_json = response.json()
         except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            if status == 429:
-                raise RateLimitError("Anthropic rate limit exceeded.") from exc
-            if status == 401:
-                raise AuthenticationError("Anthropic authentication failed.") from exc
-            if 500 <= status < 600:
-                raise ProviderUnavailableError(
-                    f"Anthropic service unavailable (HTTP {status})."
-                ) from exc
-            raise ProviderUnavailableError(f"Anthropic request failed (HTTP {status}).") from exc
+            raise exception_for_http_status(
+                "Anthropic", exc.response.status_code, model=self._model
+            ) from exc
         except httpx.HTTPError as exc:
             raise ProviderUnavailableError(f"Anthropic network error: {exc}") from exc
 

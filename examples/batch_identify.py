@@ -13,7 +13,6 @@ Run:
 """
 
 from adam_identification import batch_identify
-from adam_identification.models import Material
 
 queries = [
     "silicon",
@@ -30,7 +29,6 @@ print(f"Identifying {len(queries)} materials concurrently (concurrency=4)...\n")
 
 results = batch_identify(
     queries,
-    provider="google",
     model="gemini-3.1-pro-preview",
     concurrency=4,
     output="ase",
