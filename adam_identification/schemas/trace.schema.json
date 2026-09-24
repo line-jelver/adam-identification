@@ -249,6 +249,17 @@
           "default": null,
           "title": "Selected Id"
         },
+        "selected_record": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SelectedMaterialRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "needs_review": {
           "default": false,
           "title": "Needs Review",
@@ -520,6 +531,18 @@
           "default": null,
           "title": "Mp Id"
         },
+        "mc3d_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mc3D Id"
+        },
         "pc_cid": {
           "anyOf": [
             {
@@ -574,6 +597,37 @@
         }
       },
       "title": "MaterialIdentity",
+      "type": "object"
+    },
+    "SelectedMaterialRecord": {
+      "description": "Provider-neutral identity of the material identification selected.\n\nOlder traces omit the object; loading them leaves the field ``None``.\n\nAttributes:\n    provider: Database that supplied the material.\n    provider_id: That database's identifier.\n    method: Methodology such as ``\"pbesol-v2\"``. ``None`` when unreported.\n        The Materials Project placeholder ``\"unknown\"`` is stored as ``None``.",
+      "properties": {
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "provider_id": {
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        }
+      },
+      "required": [
+        "provider",
+        "provider_id"
+      ],
+      "title": "SelectedMaterialRecord",
       "type": "object"
     },
     "TraceStatus": {

@@ -44,7 +44,7 @@ def _make_identifier(
     else:
         mock_pubchem = None
 
-    return MaterialIdentifier(llm=mock_llm, mp_client=mock_mp, pubchem_client=mock_pubchem)
+    return MaterialIdentifier(llm=mock_llm, crystal_retriever=mock_mp, pubchem_client=mock_pubchem)
 
 
 def _trace(query: str) -> Trace:
@@ -176,14 +176,16 @@ def test_identify_molecule_routes_to_pubchem() -> None:
     mock_pubchem.get_by_cid.return_value = mol_material
 
     mock_mp = MagicMock()
-    identifier = MaterialIdentifier(llm=mock_llm, mp_client=mock_mp, pubchem_client=mock_pubchem)
+    identifier = MaterialIdentifier(
+        llm=mock_llm, crystal_retriever=mock_mp, pubchem_client=mock_pubchem
+    )
 
     trace = _trace("water")
     result = identifier.identify("water", trace=trace)
     assert result is mol_material
     mock_pubchem.get_molecule_candidates.assert_called_once_with("water")
     mock_pubchem.get_by_cid.assert_called_once_with(962)
-    mock_mp.search_by_formula.assert_not_called()
+    mock_mp.search.assert_not_called()
     assert trace.identification.domain == "molecule"
     assert trace.identification.n_candidates_narrow == 1
     assert trace.identification.candidates_shown_narrow[0]["cid"] == 962
@@ -199,7 +201,9 @@ def test_identify_molecule_raises_when_no_pubchem_client() -> None:
         {"decision": "proceed", "domain": "molecule", "formula": "H2O", "search_name": "water"}
     )
     mock_llm.complete_single = AsyncMock(return_value=mock_response)
-    identifier = MaterialIdentifier(llm=mock_llm, mp_client=MagicMock(), pubchem_client=None)
+    identifier = MaterialIdentifier(
+        llm=mock_llm, crystal_retriever=MagicMock(), pubchem_client=None
+    )
 
     with pytest.raises(ValueError, match="PubChemClient"):
         identifier.identify("water", trace=_trace("water"))
@@ -215,10 +219,12 @@ def test_identify_crystal_does_not_call_pubchem() -> None:
     mock_llm.complete_single = AsyncMock(return_value=mock_response)
 
     mock_mp = MagicMock()
-    mock_mp.search_by_formula.return_value = []  # triggers MaterialNotFoundError
+    mock_mp.search.return_value.candidates = []
     mock_pubchem = MagicMock()
 
-    identifier = MaterialIdentifier(llm=mock_llm, mp_client=mock_mp, pubchem_client=mock_pubchem)
+    identifier = MaterialIdentifier(
+        llm=mock_llm, crystal_retriever=mock_mp, pubchem_client=mock_pubchem
+    )
     with pytest.raises(MaterialNotFoundError):
         identifier.identify("silicon", trace=_trace("silicon"))
 
@@ -259,7 +265,7 @@ def test_ambiguous_molecule_raises_ambiguous_identification_error() -> None:
     ]
 
     identifier = MaterialIdentifier(
-        llm=mock_llm, mp_client=MagicMock(), pubchem_client=mock_pubchem
+        llm=mock_llm, crystal_retriever=MagicMock(), pubchem_client=mock_pubchem
     )
     with pytest.raises(AmbiguousIdentificationError) as exc_info:
         identifier.identify("xylene", trace=_trace("xylene"))

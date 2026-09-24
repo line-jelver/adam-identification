@@ -22,48 +22,41 @@ import json
 from typing import Any
 
 from adam_identification._confidence import parse_confidence_level
+from adam_identification.database.crystal_provider import CrystalCandidate
 from adam_identification.database.pubchem import MoleculeCandidate
 from adam_identification.llm.json_utils import _try_complete_json, parse_llm_json_object
-from adam_identification.models import Material, MaterialSource, MaterialsProjectProperties
 
 INITIAL_MAX_RESULTS = 20
 WIDE_MAX_RESULTS = 50
 
 
-def candidates_to_selection_json(candidates: list[Material]) -> list[dict[str, Any]]:
-    """Serialize MP candidates for the phase-selection LLM prompt.
+def candidates_to_selection_json(candidates: list[CrystalCandidate]) -> list[dict[str, Any]]:
+    """Serialize crystal candidates for the phase-selection LLM prompt.
 
-    Matches the compact payload used in production identification: index, MP id,
-    formula, symmetry, site count, and key thermodynamic flags only.
+    The ``mp_id`` key is populated from each candidate's provider-specific
+    ``source_id``. The name is kept so already-persisted provenance JSON keeps
+    the same shape. ``energy_above_hull`` and ``is_metal`` are ``None`` for a
+    provider that does not report them.
 
     Args:
-        candidates: Ordered Materials Project candidate materials.
+        candidates: Ordered crystal candidates from a narrow or wide search.
 
     Returns:
         List of dicts suitable for ``json.dumps`` into ``phase_selection.j2``.
     """
-    out: list[dict[str, Any]] = []
-    for idx, mat in enumerate(candidates):
-        struct = mat.structure
-        props = mat.get_properties(MaterialSource.MATERIALS_PROJECT)
-        mp_props: dict[str, Any] = {}
-        if isinstance(props, MaterialsProjectProperties):
-            mp_props = {
-                "energy_above_hull": props.energy_above_hull,
-                "is_metal": props.is_metal,
-            }
-        out.append(
-            {
-                "index": idx,
-                "mp_id": mat.mp_id,
-                "formula": mat.chemical_formula,
-                "space_group": getattr(struct, "space_group", None),
-                "crystal_system": getattr(struct, "crystal_system", None),
-                "nsites": getattr(struct, "nsites", None),
-                **mp_props,
-            }
-        )
-    return out
+    return [
+        {
+            "index": idx,
+            "mp_id": candidate.source_id,
+            "formula": candidate.formula,
+            "space_group": candidate.space_group,
+            "crystal_system": candidate.crystal_system,
+            "nsites": candidate.nsites,
+            "energy_above_hull": candidate.energy_above_hull_ev_per_atom,
+            "is_metal": candidate.is_metal,
+        }
+        for idx, candidate in enumerate(candidates)
+    ]
 
 
 _VALID_DECISIONS: frozenset[str] = frozenset({"select", "ambiguous", "not_found"})
@@ -154,47 +147,6 @@ def parse_llm_json_tolerant(content: str) -> dict[str, Any]:
 
     msg = f"Could not parse JSON object from LLM output: {content[:200]!r}"
     raise ValueError(msg) from None
-
-
-def material_to_scoring_payload(material: Material) -> dict[str, Any]:
-    """Convert a selected ``Material`` into benchmark scoring fields.
-
-    Args:
-        material: Chosen Materials Project material.
-
-    Returns:
-        Dict with keys used by identification benchmarks and downstream scoring.
-    """
-    struct = material.structure
-    props = material.get_properties(MaterialSource.MATERIALS_PROJECT)
-    electronic: dict[str, Any] = {
-        "band_gap": None,
-        "is_metal": None,
-        "is_direct": None,
-    }
-    eah: float | None = None
-    if isinstance(props, MaterialsProjectProperties):
-        electronic = {
-            "band_gap": props.band_gap,
-            "is_metal": props.is_metal,
-            "is_direct": props.is_direct_gap,
-        }
-        eah = props.energy_above_hull
-    return {
-        "material_id": material.mp_id or "",
-        "chemical_formula": material.chemical_formula,
-        "crystal_system": getattr(struct, "crystal_system", None) or "N/A",
-        "space_group": getattr(struct, "space_group", None) or "N/A",
-        "energy_above_hull": eah,
-        "electronic_properties": electronic,
-        "common_names": [],
-        "structure_type": "N/A",
-        "lattice_parameters": dict(getattr(struct, "lattice_parameters", {}) or {}),
-        "atomic_positions": [
-            {"element": pos.element, "position": list(pos.position)}
-            for pos in getattr(struct, "atomic_positions", []) or []
-        ],
-    }
 
 
 def parse_formula_counts(formula: str) -> dict[str, int]:
@@ -330,8 +282,9 @@ def phase_not_found_message(
     """
     return (
         f"Could not find the requested phase for {query!r} "
-        f"(formula={formula!r}) in the Materials Project database. "
+        f"(formula={formula!r}) in the configured crystal database(s). "
         f"Searched {n_candidates} candidates. "
         f"LLM reason: {selection_reason or 'none'}. "
-        "Provide a more specific query or a known Materials Project ID."
+        "Provide a more specific query or a known database ID (e.g. an MC3D "
+        "or Materials Project ID)."
     )

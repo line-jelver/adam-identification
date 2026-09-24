@@ -53,8 +53,9 @@ class Settings:
         anthropic_api_key: Anthropic API key.
         google_api_key: Google Gemini API key.
         openrouter_api_key: OpenRouter API key (access to 300+ models).
-        materials_project_api_key: Materials Project API key (required for
-            crystal identification). Get yours at
+        materials_project_api_key: Materials Project API key. Required only
+            for ``--crystal-source materials-project``, or included under
+            ``auto`` when already set. MC3D needs no key. Get yours at
             https://next-gen.materialsproject.org/api
     """
 

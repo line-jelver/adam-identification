@@ -5,7 +5,7 @@ Database-grounded LLM agent for atomistic structure identification from natural-
 Given a description like `"silicon"`, `"caffeine"`, or `"rutile TiO2"`, the agent:
 
 1. Uses a language model to extract the chemical formula and any disambiguation hints (polymorph, space group, SMILES)
-2. Queries the **Materials Project** (crystals) or **PubChem** (molecules) for matching candidates
+2. Queries **Materials Cloud MC3D** by default (crystals; Materials Project when a key is set or requested) or **PubChem** (molecules) for matching candidates
 3. Selects the correct phase or structural isomer
 4. Returns an `ase.Atoms` or `pymatgen.Structure` object ready for first-principles calculations
 
@@ -26,7 +26,7 @@ Formula extraction (LLM)
     ▼
   Crystal path                  Molecule path
      │                               │
-     │ MP search (≤20)               │ PubChem name search (≤5)
+     │ Crystal search (≤20)          │ PubChem name search (≤5)
      │ LLM phase selection           │ formula filter
      │   "not_found" → widen (≤50)   │ LLM isomer selection
      │                               │ 3D fetch for winner
@@ -57,7 +57,7 @@ The package requires API keys loaded from environment variables or a `.env` file
 
 | Variable | Purpose | Required for |
 |---|---|---|
-| `MATERIALS_PROJECT_API_KEY` | Materials Project API | Crystal identification |
+| `MATERIALS_PROJECT_API_KEY` | Materials Project API | `--crystal-source materials-project`, or the `auto` fallback when the key is set. MC3D needs no key |
 | `GOOGLE_API_KEY` | Google Gemini | LLM provider key ``google`` |
 | `OPENAI_API_KEY` | OpenAI | Optional LLM provider |
 | `ANTHROPIC_API_KEY` | Anthropic Claude | Optional LLM provider |
@@ -232,10 +232,11 @@ There is no default model: pass `model=` / `--model` for every call. The provide
 
 The `Material` object carries:
 - `material.chemical_formula` — reduced formula
-- `material.mp_id` — Materials Project ID (crystals)
+- `material.primary_id` — database id for the source that answered (`mc3d-…`, `mp-…`, or a PubChem CID)
+- `material.mp_id` / `material.mc3d_id` — set only for that database
 - `material.pc_cid` — PubChem Compound ID (molecules)
 - `material.structure` — `CrystalStructure` or `MoleculeStructure` with coordinates
-- `material.properties[0]` — `MaterialsProjectProperties` with band gap, energy above hull, etc.
+- `material.properties[0]` — `MC3DProperties` or `MaterialsProjectProperties`, depending on the source
 
 `IdentificationResult.trace` is a full `Trace`: extraction, candidate lists,
 selection decisions, `identification.outcome`, `needs_review`, LLM call records
@@ -257,7 +258,7 @@ its own `Trace`. Ambiguity and clarification complete the parent run
 
 ```python
 from adam_identification import IdentificationSession, MaterialIdentifier
-from adam_identification.database.materials_project import MaterialsProjectClient
+from adam_identification.database.crystal_retrieval import build_crystal_retriever
 from adam_identification.database.pubchem import PubChemClient
 from adam_identification.exceptions import (
     AmbiguousIdentificationError,
@@ -268,7 +269,7 @@ from adam_identification.llm import get_provider
 llm = get_provider(model="gemini-3.1-pro-preview")
 identifier = MaterialIdentifier(
     llm,
-    mp_client=MaterialsProjectClient(),
+    build_crystal_retriever(),
     pubchem_client=PubChemClient(),
 )
 session = IdentificationSession(identifier)

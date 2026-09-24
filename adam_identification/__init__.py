@@ -29,7 +29,9 @@ API keys are loaded from environment variables or a ``.env`` file:
     OPENAI_API_KEY            (for OpenAI models)
     ANTHROPIC_API_KEY         (for Claude models)
     OPENROUTER_API_KEY        (for DeepSeek, Kimi, Qwen, and others)
-    MATERIALS_PROJECT_API_KEY (required for crystal identification)
+    MATERIALS_PROJECT_API_KEY (optional; MC3D needs no key. Required for
+                              --crystal-source materials-project, and used as
+                              the auto fallback when set)
 
 See the README for full setup instructions.
 """
@@ -71,7 +73,7 @@ if TYPE_CHECKING:
     import ase
     import pymatgen.core
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 
 def batch_identify(
@@ -80,6 +82,8 @@ def batch_identify(
     provider: str | None = None,
     model: str | None = None,
     mp_api_key: str | None = None,
+    crystal_source: str = "auto",
+    mc3d_method: str = "pbesol-v2",
     concurrency: int = 5,
     output: Literal["ase", "pymatgen", "material", "result"] = "ase",
     minimal_interaction: bool = False,
@@ -95,6 +99,8 @@ def batch_identify(
         provider=provider,
         model=model,
         mp_api_key=mp_api_key,
+        crystal_source=crystal_source,
+        mc3d_method=mc3d_method,
         concurrency=concurrency,
         output=output,
         minimal_interaction=minimal_interaction,
@@ -133,6 +139,8 @@ def identify(
     model: str | None = None,
     output: Literal["ase", "pymatgen", "material", "result"] = "ase",
     mp_api_key: str | None = None,
+    crystal_source: str = "auto",
+    mc3d_method: str = "pbesol-v2",
     minimal_interaction: bool = False,
     work_dir: str | None = None,
 ) -> (
@@ -153,7 +161,13 @@ def identify(
         model: Required model slug. There is no default.
         output: Return type — ``"ase"`` (default), ``"pymatgen"``,
             ``"material"``, or ``"result"`` (atoms, material, and full Trace).
-        mp_api_key: Materials Project API key.
+        mp_api_key: Materials Project API key override. Used when
+            ``crystal_source`` is ``materials-project``, or as the ``auto``
+            fallback when set.
+        crystal_source: ``auto`` (default), ``mc3d``, or ``materials-project``.
+        mc3d_method: MC3D dataset ``pbe-v1``, ``pbesol-v1``, or ``pbesol-v2``
+            (default). This selects the published database, not an execution
+            exchange-correlation functional.
         minimal_interaction: When ``True``, always select and flag
             ``trace.needs_review``.
         work_dir: When set, write ``adam.json`` and a structure file here.
@@ -178,6 +192,8 @@ def identify(
         provider=provider,
         model=model,
         mp_api_key=mp_api_key,
+        crystal_source=crystal_source,
+        mc3d_method=mc3d_method,
         minimal_interaction=minimal_interaction,
         work_dir=wd,
         write_artifacts=wd is not None,

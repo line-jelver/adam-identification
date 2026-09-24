@@ -247,6 +247,8 @@ def run_identification(
     provider: str | None = None,
     model: str | None = None,
     mp_api_key: str | None = None,
+    crystal_source: str = "auto",
+    mc3d_method: str = "pbesol-v2",
     minimal_interaction: bool = False,
     work_dir: Path | None = None,
     extra_save_paths: list[Path] | None = None,
@@ -262,11 +264,12 @@ def run_identification(
     Persist when ``work_dir`` is set. When ``identify_fn`` is supplied, skip
     provider and database client construction.
     """
-    from adam_identification.database.materials_project import MaterialsProjectClient
+    from adam_identification.database.crystal_retrieval import build_crystal_retriever
     from adam_identification.database.pubchem import PubChemClient
     from adam_identification.identifier import MaterialIdentifier
     from adam_identification.llm import get_provider
 
+    retriever = None
     if work_dir is not None:
         work_dir = Path(work_dir)
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -280,14 +283,18 @@ def run_identification(
         if identify_fn is None:
             try:
                 llm = get_provider(provider, model)
-                mp_client = MaterialsProjectClient(api_key=mp_api_key)
+                retriever = build_crystal_retriever(
+                    crystal_source, mc3d_method, mp_api_key=mp_api_key
+                )
                 pubchem_client = PubChemClient()
             except BaseException as exc:
                 _attach(exc, trace)
                 _finish_failed(trace, exc)
                 raise
+            if retriever is None:
+                raise RuntimeError("Crystal retriever was not constructed.")
             identifier = MaterialIdentifier(
-                llm, mp_client, pubchem_client, minimal_interaction=minimal_interaction
+                llm, retriever, pubchem_client, minimal_interaction=minimal_interaction
             )
             identify_fn = lambda q, tr: identifier.identify(q, trace=tr)  # noqa: E731
 
@@ -328,4 +335,6 @@ def run_identification(
                 _finish_failed(trace, exc)
         raise
     finally:
+        if retriever is not None:
+            retriever.close()
         _unbind(tokens)

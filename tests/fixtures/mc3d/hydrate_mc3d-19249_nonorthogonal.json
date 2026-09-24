@@ -1,0 +1,118 @@
+{
+  "data": {
+    "id": "38e42253-a0b6-499e-adea-2a17e81866b9",
+    "relationships": null,
+    "links": null,
+    "type": "structures",
+    "attributes": {
+      "chemical_formula_reduced": "O2Ti",
+      "lattice_vectors": [
+        [
+          1.4479831642349e-19,
+          2.3886299790505,
+          2.3886299790505
+        ],
+        [
+          2.3886299790505,
+          6.0397595357783e-19,
+          2.3886299790505
+        ],
+        [
+          2.3886299790505,
+          2.3886299790505,
+          6.0806968478171e-19
+        ]
+      ],
+      "cartesian_site_positions": [
+        [
+          -4.319723532627e-57,
+          4.2952237096409e-57,
+          -4.3305513356142e-41
+        ],
+        [
+          1.1943149895752,
+          1.1943149895752,
+          3.5829449686257
+        ],
+        [
+          1.1943149895752,
+          3.5829449686257,
+          3.5829449686257
+        ]
+      ],
+      "nsites": 3,
+      "species": [
+        {
+          "name": "Ti",
+          "chemical_symbols": [
+            "Ti"
+          ],
+          "concentration": [
+            1.0
+          ],
+          "mass": null,
+          "original_name": null,
+          "attached": null,
+          "nattached": null
+        },
+        {
+          "name": "O",
+          "chemical_symbols": [
+            "O"
+          ],
+          "concentration": [
+            1.0
+          ],
+          "mass": null,
+          "original_name": null,
+          "attached": null,
+          "nattached": null
+        }
+      ],
+      "species_at_sites": [
+        "Ti",
+        "O",
+        "O"
+      ],
+      "structure_features": [],
+      "_mcloud_mc3d_id": "mc3d-19249",
+      "_mcloud_source_db": "icsd",
+      "_mcloud_source_db_id": "189325",
+      "_mcloud_total_energy": -2745.8239568801,
+      "_mcloud_cell_volume": 27.256910730431,
+      "_mcloud_total_magnetization": 0.0,
+      "_mcloud_absolute_magnetization": 0.0
+    }
+  },
+  "meta": {
+    "query": {
+      "representation": "/main/mc3d-pbesol-v2/v1/structures/38e42253-a0b6-499e-adea-2a17e81866b9?response_fields=chemical_formula_reduced,lattice_vectors,cartesian_site_positions,species,species_at_sites,nsites,structure_features,_mcloud_mc3d_id,_mcloud_source_db,_mcloud_source_db_id,_mcloud_total_energy,_mcloud_cell_volume,_mcloud_total_magnetization,_mcloud_absolute_magnetization"
+    },
+    "api_version": "1.2.0",
+    "more_data_available": false,
+    "schema": "https://schemas.optimade.org/openapi/v1.2.0/optimade.json",
+    "time_stamp": "2026-09-23T08:58:22.849717",
+    "data_returned": 1,
+    "provider": {
+      "name": "Materials Cloud",
+      "description": "A platform for Open Science built for seamless sharing of resources in computational materials science",
+      "prefix": "mcloud",
+      "homepage": "https://www.materialscloud.org/"
+    },
+    "data_available": 33142,
+    "implementation": {
+      "name": "OPTIMADE Python Tools",
+      "version": "1.4.1",
+      "homepage": "https://optimade.org/optimade-python-tools",
+      "source_url": "https://github.com/Materials-Consortia/optimade-python-tools",
+      "maintainer": {
+        "email": "dev@optimade.org"
+      },
+      "issue_tracker": "https://github.com/Materials-Consortia/optimade-python-tools/issues"
+    }
+  },
+  "included": [],
+  "links": {
+    "next": null
+  }
+}

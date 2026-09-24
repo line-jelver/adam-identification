@@ -24,7 +24,12 @@ from adam_identification.identifier import MaterialIdentifier
 from adam_identification.models import Material
 from adam_identification.provenance.context import checkpoint, identification_stage
 from adam_identification.provenance.lifecycle import scoped_identify
-from adam_identification.provenance.trace import IdentificationSection, IdentificationStage, Trace
+from adam_identification.provenance.trace import (
+    IdentificationSection,
+    IdentificationStage,
+    Trace,
+    record_selected_material,
+)
 
 
 @dataclass
@@ -186,14 +191,14 @@ class IdentificationSession:
             checkpoint()
             formula = cached.formula
             with identification_stage(IdentificationStage.DATABASE_SEARCH):
-                candidates = self._id._mp.search_by_formula(formula, max_results=WIDE_MAX_RESULTS)
+                candidates = self._id._retriever.search(formula, WIDE_MAX_RESULTS).candidates
             section.n_candidates_wide = len(candidates)
             section.candidates_shown_wide = candidates_to_selection_json(candidates)
             checkpoint()
             if not candidates:
                 section.outcome = "not_found"
                 raise MaterialNotFoundError(
-                    f"No Materials Project entries found for formula {formula!r}."
+                    f"No crystal-database entries found for formula {formula!r}."
                 )
             with identification_stage(IdentificationStage.SELECTION):
                 selection = self._id._select_phase(
@@ -206,9 +211,9 @@ class IdentificationSession:
             checkpoint()
             if selection["decision"] == "select":
                 idx = int(selection["selected_index"])
-                material = candidates[idx]
+                material = self._id._retriever.hydrate(candidates[idx])
                 section.outcome = "selected"
-                section.selected_id = material.mp_id
+                record_selected_material(section, material)
                 return material
             if selection["decision"] == "ambiguous":
                 section.outcome = "ambiguous"

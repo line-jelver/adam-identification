@@ -3,8 +3,10 @@
 Takes a natural language description of a material or molecule and resolves it
 to a canonical :class:`~adam_identification.models.Material`.
 
-* **Crystal path** — formula extracted by LLM, then queried against the Materials
-  Project (narrow → wide phase selection).  Returns a ``Material`` with
+* **Crystal path** — an explicit database ID (``mc3d-<n>`` or ``mp-<n>``) is
+  resolved directly; otherwise a formula is extracted by the LLM and searched
+  via a :class:`~adam_identification.database.crystal_retrieval.CrystalRetriever`
+  (narrow → wide phase selection).  Returns a ``Material`` with
   ``CrystalStructure``.
 * **Molecule path** — LLM signals ``domain="molecule"``; the agent collects
   up to 5 PubChem name-search candidates, lets the LLM select the correct
@@ -54,7 +56,15 @@ from adam_identification._phase_lookup import (
     formulas_match as _formulas_match,
 )
 from adam_identification._prompts import PromptLoader
+from adam_identification.database.crystal_retrieval import (
+    CrystalRetriever,
+    CrystalSourcePolicy,
+    looks_like_explicit_crystal_id,
+)
 from adam_identification.database.materials_project import MaterialsProjectClient
+from adam_identification.database.materials_project_provider import (
+    MaterialsProjectCrystalProvider,
+)
 from adam_identification.database.pubchem import MoleculeCandidate, PubChemClient
 from adam_identification.exceptions import (
     AmbiguousIdentificationError,
@@ -69,7 +79,11 @@ from adam_identification.provenance.context import (
     identification_stage,
     llm_purpose,
 )
-from adam_identification.provenance.trace import IdentificationStage, Trace
+from adam_identification.provenance.trace import (
+    IdentificationStage,
+    Trace,
+    record_selected_material,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,24 +115,43 @@ def _checkpoint_identification() -> None:
     checkpoint()
 
 
+def _coerce_crystal_retriever(
+    crystal_source: CrystalRetriever | MaterialsProjectClient,
+) -> CrystalRetriever:
+    """Wrap a bare Materials Project client as a Materials-Project-only retriever.
+
+    A :class:`CrystalRetriever` is returned unchanged. Any other object is
+    treated as an already-built retriever so tests can pass a double.
+    """
+    if isinstance(crystal_source, MaterialsProjectClient):
+        return CrystalRetriever(
+            [MaterialsProjectCrystalProvider(crystal_source)],
+            policy=CrystalSourcePolicy.MATERIALS_PROJECT,
+        )
+    return crystal_source  # type: ignore[return-value]
+
+
 class MaterialIdentifier:
     """Resolve a natural language material description to a ``Material``.
 
-    Handles both periodic crystals (via the Materials Project) and discrete
-    molecules (via PubChem).  The routing decision is made by the LLM during
-    formula extraction: ``domain="molecule"`` triggers the PubChem path and
-    ``domain="crystal"`` triggers the MP path.
+    Handles both periodic crystals (via a
+    :class:`~adam_identification.database.crystal_retrieval.CrystalRetriever`)
+    and discrete molecules (via PubChem).  The routing decision is made by the
+    LLM during formula extraction: ``domain="molecule"`` triggers the PubChem
+    path and ``domain="crystal"`` triggers the crystal-retriever path.
 
-    Crystal identification (three steps):
+    Crystal identification:
+        0. **Explicit-ID fast path** — a query that is exactly ``mc3d-<n>`` or
+           ``mp-<n>`` is resolved via the retriever and skips the LLM.
         1. **Formula extraction** — LLM extracts formula, domain, and
            ``search_name``.  If ``decision="clarify"``, raises
            :class:`~adam_identification.exceptions.ClarificationNeededError`.
-        2. **Phase selection (narrow)** — MP searched for up to
+        2. **Phase selection (narrow)** — the retriever is searched for up to
            ``INITIAL_MAX_RESULTS`` candidates; LLM selects the best match.
            In ``minimal_interaction`` mode, ``"ambiguous"`` results are treated
            as a selection using ``selected_index`` from the LLM response.
-        3. **Phase selection (wide, if needed)** — MP re-queried with
-           ``WIDE_MAX_RESULTS`` when the narrow selection returned
+        3. **Phase selection (wide, if needed)** — the retriever is re-queried
+           with ``WIDE_MAX_RESULTS`` when the narrow selection returned
            ``decision="not_found"``.
 
     Molecule identification (two steps):
@@ -131,8 +164,11 @@ class MaterialIdentifier:
 
     Args:
         llm: Any ``BaseLLM`` provider.
-        mp_client: Configured
-            :class:`~adam_identification.database.materials_project.MaterialsProjectClient`.
+        crystal_retriever: A configured
+            :class:`~adam_identification.database.crystal_retrieval.CrystalRetriever`,
+            or a bare
+            :class:`~adam_identification.database.materials_project.MaterialsProjectClient`
+            wrapped as a Materials-Project-only retriever.
         pubchem_client: Optional
             :class:`~adam_identification.database.pubchem.PubChemClient`.
             Required when molecule queries are expected.  If ``None`` and the LLM
@@ -147,12 +183,12 @@ class MaterialIdentifier:
     def __init__(
         self,
         llm: BaseLLM,
-        mp_client: MaterialsProjectClient,
+        crystal_retriever: CrystalRetriever | MaterialsProjectClient,
         pubchem_client: PubChemClient | None = None,
         minimal_interaction: bool = False,
     ) -> None:
         self._llm = llm
-        self._mp = mp_client
+        self._retriever = _coerce_crystal_retriever(crystal_retriever)
         self._pubchem = pubchem_client
         self._loader = PromptLoader()
         self._minimal_interaction = minimal_interaction
@@ -181,6 +217,10 @@ class MaterialIdentifier:
                 ``domain="molecule"`` but no ``pubchem_client`` was provided.
         """
         section = trace.identification
+        stripped_query = query.strip()
+        if looks_like_explicit_crystal_id(stripped_query):
+            return self._identify_by_explicit_id(stripped_query, trace)
+
         extraction = self._extract_formula(query)
         section.extraction = extraction
         domain: str = extraction["domain"]
@@ -207,18 +247,46 @@ class MaterialIdentifier:
             return self._identify_molecule(query, extraction, trace)
         return self._identify_crystal(query, extraction, trace)
 
+    def _identify_by_explicit_id(self, source_id: str, trace: Trace) -> Material:
+        """Resolve a query that is exactly a database ID, skipping the LLM."""
+        section = trace.identification
+        section.domain = "crystal"
+        section.extraction = {"decision": "proceed", "domain": "crystal", "formula": None}
+        _checkpoint_identification()
+        try:
+            with identification_stage(IdentificationStage.DATABASE_SEARCH):
+                material = self._retriever.get_by_id(source_id)
+        except (MaterialNotFoundError, DatabaseAPIError) as error:
+            section.outcome = "not_found"
+            _checkpoint_identification()
+            exc = MaterialNotFoundError(
+                f"No crystal entry found for explicit database ID {source_id!r}: {error}"
+            )
+            _attach_trace(exc, trace)
+            raise exc from error
+
+        section.outcome = "selected"
+        record_selected_material(section, material)
+        section.selection_decision = "select"
+        section.selection_reason = (
+            f"Explicit database ID {source_id!r} bypasses formula extraction and phase selection."
+        )
+        _checkpoint_identification()
+        logger.info("[%s] resolved directly via explicit database ID", source_id)
+        return material
+
     def _identify_crystal(
         self,
         query: str,
         extraction: dict[str, Any],
         trace: Trace,
     ) -> Material:
-        """Resolve a crystal query via Materials Project phase selection."""
+        """Resolve a crystal query via the configured crystal retriever."""
         section = trace.identification
         formula: str = extraction["formula"]
 
         with identification_stage(IdentificationStage.DATABASE_SEARCH):
-            candidates = self._mp.search_by_formula(formula, max_results=INITIAL_MAX_RESULTS)
+            candidates = self._retriever.search(formula, INITIAL_MAX_RESULTS).candidates
         section.n_candidates_narrow = len(candidates)
         section.candidates_shown_narrow = candidates_to_selection_json(candidates)
         _checkpoint_identification()
@@ -226,14 +294,14 @@ class MaterialIdentifier:
             section.outcome = "not_found"
             _checkpoint_identification()
             msg = (
-                f"No Materials Project entries found for formula {formula!r} "
+                f"No crystal-database entries found for formula {formula!r} "
                 f"(extracted from query {query!r})."
             )
             exc = MaterialNotFoundError(msg)
             _attach_trace(exc, trace)
             raise exc
 
-        logger.info("[%s] MP returned %d candidates (narrow)", query, len(candidates))
+        logger.info("[%s] retriever returned %d candidates (narrow)", query, len(candidates))
         with identification_stage(IdentificationStage.SELECTION):
             selection = self._select_phase(
                 query, formula, candidates, purpose="identification.narrow_selection"
@@ -260,14 +328,14 @@ class MaterialIdentifier:
                 idx = int(selection["selected_index"])
                 if selection.get("needs_review"):
                     section.needs_review = True
-            material = candidates[idx]
+            material = self._retriever.hydrate(candidates[idx])
             section.outcome = "selected"
-            section.selected_id = material.mp_id
+            record_selected_material(section, material)
             _checkpoint_identification()
             logger.info(
                 "[%s] selected %s (%s) — %s",
                 query,
-                material.mp_id,
+                material.primary_id,
                 getattr(material.structure, "space_group", "?"),
                 selection.get("selection_reason", ""),
             )
@@ -297,11 +365,11 @@ class MaterialIdentifier:
             WIDE_MAX_RESULTS,
         )
         with identification_stage(IdentificationStage.DATABASE_SEARCH):
-            wide_candidates = self._mp.search_by_formula(formula, max_results=WIDE_MAX_RESULTS)
+            wide_candidates = self._retriever.search(formula, WIDE_MAX_RESULTS).candidates
         section.n_candidates_wide = len(wide_candidates)
         section.candidates_shown_wide = candidates_to_selection_json(wide_candidates)
         _checkpoint_identification()
-        logger.info("[%s] MP returned %d candidates (wide)", query, len(wide_candidates))
+        logger.info("[%s] retriever returned %d candidates (wide)", query, len(wide_candidates))
 
         with identification_stage(IdentificationStage.SELECTION):
             wide_selection = self._select_phase(
@@ -329,14 +397,14 @@ class MaterialIdentifier:
                 idx = int(wide_selection["selected_index"])
                 if wide_selection.get("needs_review"):
                     section.needs_review = True
-            material = wide_candidates[idx]
+            material = self._retriever.hydrate(wide_candidates[idx])
             section.outcome = "selected"
-            section.selected_id = material.mp_id
+            record_selected_material(section, material)
             _checkpoint_identification()
             logger.info(
                 "[%s] selected %s (%s) after wide search — %s",
                 query,
-                material.mp_id,
+                material.primary_id,
                 getattr(material.structure, "space_group", "?"),
                 wide_selection.get("selection_reason", ""),
             )
@@ -586,7 +654,7 @@ class MaterialIdentifier:
         self,
         query: str,
         formula: str,
-        candidates: list[Material],
+        candidates: list[Any],
         *,
         purpose: str = "identification.narrow_selection",
     ) -> dict[str, Any]:

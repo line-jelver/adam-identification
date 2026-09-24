@@ -235,8 +235,18 @@ def test_session_linked_traces(monkeypatch: pytest.MonkeyPatch) -> None:
     assert parent.identification.outcome == "ambiguous"
     parent_dump = parent.model_dump()
 
+    from adam_identification.database.crystal_provider import CrystalCandidate
+
     material = _si_material()
-    identifier._mp.search_by_formula.return_value = [material]
+    candidate = CrystalCandidate(
+        source=material.source,
+        source_id="mp-149",
+        structure_ref="mp-149",
+        formula="BN",
+        space_group="P6_3/mmc",
+    )
+    identifier._retriever.search.return_value.candidates = [candidate]
+    identifier._retriever.hydrate.return_value = material
     identifier._select_phase.return_value = {
         "decision": "select",
         "selected_index": 0,

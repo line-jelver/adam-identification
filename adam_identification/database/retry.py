@@ -20,7 +20,7 @@ from typing import Generic, TypeVar
 
 import httpx
 
-from adam_identification.exceptions import DatabaseAPIError
+from adam_identification.exceptions import DatabaseAPIError, DatabaseHTTPError
 from adam_identification.llm.retry import DEFAULT_RATE_LIMIT_DELAYS_S
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,10 @@ PUBCHEM_TRANSIENT_MARKERS: tuple[str, ...] = (
     "search status indicates failure",
 )
 
+#: HTTP statuses treated as transient for typed ``DatabaseHTTPError``
+#: failures. 400/404/422 and any other status are never retried.
+HTTP_RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
+
 
 @dataclass(frozen=True)
 class DbRetryResult(Generic[T]):
@@ -62,9 +66,16 @@ class DbRetryResult(Generic[T]):
 
 
 def is_transient_database_error(exc: BaseException) -> bool:
-    """Return True when *exc* looks like a retryable PubChem/HTTP transport fault."""
+    """Return True when *exc* looks like a retryable database transport fault.
+
+    ``DatabaseHTTPError`` is checked by its explicit ``status_code`` against
+    :data:`HTTP_RETRYABLE_STATUS_CODES` before the generic ``DatabaseAPIError``
+    substring fallback, so a typed 400/404/422 is never retried.
+    """
     if isinstance(exc, httpx.RequestError):
         return True
+    if isinstance(exc, DatabaseHTTPError):
+        return exc.status_code is not None and exc.status_code in HTTP_RETRYABLE_STATUS_CODES
     if isinstance(exc, DatabaseAPIError):
         message = str(exc).lower()
         return any(marker in message for marker in PUBCHEM_TRANSIENT_MARKERS)
