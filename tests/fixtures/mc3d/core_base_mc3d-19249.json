@@ -1,0 +1,51 @@
+{
+  "general": {
+    "bravais_lattice": "cF",
+    "formula": "TiO2",
+    "formula_hill": "O2Ti",
+    "spacegroup_international": "Fm-3m",
+    "spacegroup_number": 225,
+    "structure_uuid": "38e42253-a0b6-499e-adea-2a17e81866b9"
+  },
+  "properties": {
+    "absolute_magnetization": {
+      "uuid": "af1785a1-a95e-4516-ac1c-2b2b130ac7f3",
+      "value": 0.0
+    },
+    "cell_volume": {
+      "uuid": "a3af20b0-b4cc-4a90-acb6-dec271e1688f",
+      "value": 27.2569
+    },
+    "total_energy": {
+      "uuid": "a3af20b0-b4cc-4a90-acb6-dec271e1688f",
+      "value": -2745.824
+    },
+    "total_magnetization": {
+      "uuid": "af1785a1-a95e-4516-ac1c-2b2b130ac7f3",
+      "value": 0.0
+    }
+  },
+  "provenance_links": [
+    {
+      "label": "Final relax calculation",
+      "uuid": "c1b7ecec-9702-44b9-90f1-775c2cba19e3"
+    },
+    {
+      "label": "Final structure",
+      "uuid": "38e42253-a0b6-499e-adea-2a17e81866b9"
+    }
+  ],
+  "source": [
+    {
+      "database": "ICSD",
+      "id": "189325",
+      "info": {
+        "is_high_pressure": false,
+        "is_high_temperature": false,
+        "is_theoretical": true
+      },
+      "version": "2017.2"
+    }
+  ],
+  "id": "mc3d-19249"
+}

@@ -244,6 +244,37 @@ class DatabaseAPIError(DatabaseError):
     """Raised on API/auth/network failures or malformed responses."""
 
 
+class DatabaseHTTPError(DatabaseAPIError):
+    """Raised when a typed REST API call returns a non-2xx HTTP status.
+
+    Carries enough structured context for status-code-based retry policy
+    (``adam_identification.database.retry.is_transient_database_error``)
+    without re-parsing the exception message. Currently raised by
+    ``adam_identification.database.mc3d.MC3DClient``.
+
+    Retryable statuses: 408, 425, 429, 500, 502, 503, 504. Never retried:
+    400, 404, 422, or any other 4xx.
+
+    Attributes:
+        provider: Short provider name, e.g. ``"MC3D"``.
+        operation: Short operation name, e.g. ``"search_candidates"``.
+        status_code: HTTP status code, when known.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str,
+        operation: str,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.operation = operation
+        self.status_code = status_code
+
+
 class LLMError(IdentificationError):
     """Base class for LLM provider errors."""
 

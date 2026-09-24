@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from adam_identification.cli import app
@@ -44,3 +45,40 @@ def test_unknown_model_without_provider_fails_to_infer(tmp_path: Path) -> None:
     )
     assert result.exit_code == 1
     assert "Cannot infer" in result.output
+    assert not work.exists()
+
+
+def test_help_lists_crystal_source_flags() -> None:
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "--crystal-source" in result.output
+    assert "--mc3d-method" in result.output
+
+
+def test_materials_project_without_key_does_not_create_work_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from adam_identification._config import settings
+
+    monkeypatch.setattr(
+        "adam_identification.database.crystal_retrieval.settings",
+        replace(settings, materials_project_api_key=None),
+    )
+    work = tmp_path / "work"
+    result = runner.invoke(
+        app,
+        [
+            "silicon",
+            "--model",
+            "gemini-2.5-flash-lite",
+            "--crystal-source",
+            "materials-project",
+            "--work-dir",
+            str(work),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "MATERIALS_PROJECT_API_KEY" in result.output
+    assert not work.exists()

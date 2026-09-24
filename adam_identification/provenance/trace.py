@@ -43,6 +43,7 @@ class MaterialIdentity(BaseModel):
     chemical_formula: str | None = None
     source: str | None = None
     mp_id: str | None = None
+    mc3d_id: str | None = None
     pc_cid: str | None = None
     material_type: Literal["crystal", "molecule"] | None = None
     space_group: str | None = None
@@ -96,6 +97,53 @@ class FailureRecord(BaseModel):
     message: str
 
 
+class SelectedMaterialRecord(BaseModel):
+    """Provider-neutral identity of the material identification selected.
+
+    Older traces omit the object; loading them leaves the field ``None``.
+
+    Attributes:
+        provider: Database that supplied the material.
+        provider_id: That database's identifier.
+        method: Methodology such as ``"pbesol-v2"``. ``None`` when unreported.
+            The Materials Project placeholder ``"unknown"`` is stored as ``None``.
+    """
+
+    provider: str
+    provider_id: str
+    method: str | None = None
+
+
+def _selected_method(material: Material) -> str | None:
+    """Return the methodology string to store, or ``None`` when unresolved."""
+    props = material.get_properties(material.source)
+    method = getattr(props, "method", None)
+    if not isinstance(method, str):
+        return None
+    stripped = method.strip()
+    if not stripped or stripped == "unknown":
+        return None
+    return stripped
+
+
+def record_selected_material(section: IdentificationSection, material: Material) -> None:
+    """Record the selected material on an identification section.
+
+    Sets ``selected_id`` from :attr:`~adam_identification.models.Material.primary_id`.
+    When that id is present, also sets ``selected_record``.
+    """
+    provider_id = material.primary_id
+    section.selected_id = provider_id
+    if provider_id is None:
+        section.selected_record = None
+        return
+    section.selected_record = SelectedMaterialRecord(
+        provider=material.source.value,
+        provider_id=provider_id,
+        method=_selected_method(material),
+    )
+
+
 class ArtifactRecord(BaseModel):
     """A structure file written for this run."""
 
@@ -126,12 +174,13 @@ class IdentificationSection(BaseModel):
     suggested_candidates: list[dict[str, Any]] | None = None
     outcome: Literal["selected", "not_found", "ambiguous", "clarify"] | None = None
     selected_id: str | None = None
+    selected_record: SelectedMaterialRecord | None = None
     needs_review: bool = False
 
 
 def discover_environment() -> EnvironmentRecord:
     """Return package and Python versions for a new :class:`Trace`."""
-    version = "2.0.0"
+    version = "2.1.0"
     try:
         from importlib.metadata import version as pkg_version
 
@@ -200,6 +249,7 @@ class Trace(BaseModel):
             chemical_formula=material.chemical_formula,
             source=source_str,
             mp_id=material.mp_id,
+            mc3d_id=material.mc3d_id,
             pc_cid=str(material.pc_cid) if material.pc_cid is not None else None,
             material_type=material.material_type,
             space_group=space_group,

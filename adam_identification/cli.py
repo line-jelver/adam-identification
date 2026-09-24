@@ -116,6 +116,20 @@ def identify_cmd(
         str | None,
         typer.Option("--mp-api-key", help="Materials Project API key (overrides env var)."),
     ] = None,
+    crystal_source: Annotated[
+        str,
+        typer.Option(
+            "--crystal-source",
+            help="auto (MC3D, then Materials Project if a key is set), mc3d, or materials-project.",
+        ),
+    ] = "auto",
+    mc3d_method: Annotated[
+        str,
+        typer.Option(
+            "--mc3d-method",
+            help="MC3D dataset: pbe-v1, pbesol-v1, or pbesol-v2. Not the execution XC functional.",
+        ),
+    ] = "pbesol-v2",
     minimal_interaction: Annotated[
         bool,
         typer.Option(
@@ -168,6 +182,24 @@ def identify_cmd(
     if batch is not None:
         batch_queries = _read_batch_queries(batch)
 
+    from adam_identification._config import ConfigurationError
+    from adam_identification.database.crystal_retrieval import build_crystal_retriever
+    from adam_identification.llm import infer_provider
+
+    if provider is None:
+        try:
+            infer_provider(model)
+        except ConfigurationError as exc:
+            err_console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(1) from exc
+
+    try:
+        probe = build_crystal_retriever(crystal_source, mc3d_method, mp_api_key=mp_api_key)
+        probe.close()
+    except (ConfigurationError, ValueError) as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
     resolved_work_dir = work_dir or _default_work_dir()
     resolved_work_dir.mkdir(parents=True, exist_ok=True)
     console.print(f"[dim]Work dir:[/dim] {resolved_work_dir}")
@@ -180,6 +212,8 @@ def identify_cmd(
             save_dir=save_dir,
             concurrency=concurrency,
             mp_api_key=mp_api_key,
+            crystal_source=crystal_source,
+            mc3d_method=mc3d_method,
             minimal_interaction=minimal_interaction,
             work_dir=resolved_work_dir,
         )
@@ -191,6 +225,8 @@ def identify_cmd(
             model=model,
             save=save,
             mp_api_key=mp_api_key,
+            crystal_source=crystal_source,
+            mc3d_method=mc3d_method,
             minimal_interaction=minimal_interaction,
             verbose=verbose,
             work_dir=resolved_work_dir,
@@ -240,10 +276,16 @@ def _run_single(
     model: str,
     save: Path | None,
     mp_api_key: str | None,
+    crystal_source: str,
+    mc3d_method: str,
     minimal_interaction: bool,
     verbose: bool,
     work_dir: Path,
 ) -> None:
+    from adam_identification.database.retrieval_status import (
+        bind_retrieval_status,
+        reset_retrieval_status,
+    )
     from adam_identification.exceptions import (
         AmbiguousIdentificationError,
         ClarificationNeededError,
@@ -255,14 +297,18 @@ def _run_single(
     _caught: BaseException | None = None
     material = None
     trace = None
-    if verbose:
-        console.print(f"[bold]Identifying:[/bold] {query}")
+
+    def _call(update: object) -> None:
+        nonlocal material, trace, _caught
+        token = bind_retrieval_status(update)  # type: ignore[arg-type]
         try:
             material, trace = run_identification(
                 query,
                 provider=provider,
                 model=model,
                 mp_api_key=mp_api_key,
+                crystal_source=crystal_source,
+                mc3d_method=mc3d_method,
                 minimal_interaction=minimal_interaction,
                 work_dir=work_dir,
                 extra_save_paths=extra,
@@ -270,21 +316,15 @@ def _run_single(
             )
         except BaseException as _exc:
             _caught = _exc
+        finally:
+            reset_retrieval_status(token)
+
+    if verbose:
+        console.print(f"[bold]Identifying:[/bold] {query}")
+        _call(lambda message: console.print(f"[bold]{message}[/bold]"))
     else:
-        with console.status(f"[bold]Identifying:[/bold] {query}"):
-            try:
-                material, trace = run_identification(
-                    query,
-                    provider=provider,
-                    model=model,
-                    mp_api_key=mp_api_key,
-                    minimal_interaction=minimal_interaction,
-                    work_dir=work_dir,
-                    extra_save_paths=extra,
-                    write_artifacts=True,
-                )
-            except BaseException as _exc:
-                _caught = _exc
+        with console.status(f"[bold]Identifying:[/bold] {query}") as status:
+            _call(lambda message: status.update(f"[bold]{message}[/bold]"))
 
     if _caught is not None:
         err_console.print()
@@ -313,6 +353,8 @@ def _run_batch(
     save_dir: Path | None,
     concurrency: int,
     mp_api_key: str | None,
+    crystal_source: str,
+    mc3d_method: str,
     minimal_interaction: bool,
     work_dir: Path,
 ) -> None:
@@ -328,6 +370,8 @@ def _run_batch(
         provider=provider,
         model=model,
         mp_api_key=mp_api_key,
+        crystal_source=crystal_source,
+        mc3d_method=mc3d_method,
         concurrency=concurrency,
         output="material",
         minimal_interaction=minimal_interaction,
@@ -356,7 +400,7 @@ def _run_batch(
                 result_str = f"[green]{mat.chemical_formula}[/green] ({sg})"
             else:
                 result_str = f"[green]{mat.chemical_formula}[/green] (molecule)"
-            db_id = mat.mp_id or (f"CID {mat.pc_cid}" if mat.pc_cid else "")
+            db_id = mat.primary_id or ""
             table.add_row(str(i + 1), q, result_str, db_id)
 
     console.print(table)
@@ -384,7 +428,7 @@ def _print_ambiguous(exc: object, *, verbose: bool = False) -> None:
     shown = exc.candidates_for_display(verbose=verbose)
     table = Table(title="Candidate options", show_header=True)
     if exc.domain == "crystal":
-        table.add_column("MP ID", style="cyan")
+        table.add_column("Database ID", style="cyan")
         table.add_column("Formula")
         table.add_column("Space group")
         table.add_column("Sites", justify="right")
@@ -419,6 +463,28 @@ def _print_ambiguous(exc: object, *, verbose: bool = False) -> None:
     err_console.print("Resume with IdentificationSession, or re-run with a more specific query.")
 
 
+def _crystal_source_lines(material: object) -> str:
+    """Return the database-identity lines for an identified crystal."""
+    from adam_identification.models import Material, MaterialSource
+
+    if not isinstance(material, Material):
+        return "  Database ID: [cyan]?[/cyan]"
+    if material.source == MaterialSource.MATERIALS_PROJECT:
+        return f"  Materials Project ID: [cyan]{material.mp_id or '?'}[/cyan]"
+    if material.source == MaterialSource.MC3D:
+        lines = [f"  MC3D ID: [cyan]{material.mc3d_id or '?'}[/cyan]"]
+        props = material.get_properties(MaterialSource.MC3D)
+        method = getattr(props, "method", None) if props is not None else None
+        if isinstance(method, str) and method:
+            lines[0] += f"  ({method})"
+        sources = getattr(props, "sources", None) if props is not None else None
+        if sources:
+            rendered = ", ".join(f"{record.database} {record.record_id}" for record in sources)
+            lines.append(f"  Source record: {rendered}")
+        return "\n".join(lines)
+    return f"  Database ID: [cyan]{material.primary_id or '?'}[/cyan]"
+
+
 def _print_material(material: object, query: str, *, trace: object | None = None) -> None:
     from adam_identification.models import Material
 
@@ -438,7 +504,6 @@ def _print_material(material: object, query: str, *, trace: object | None = None
         sg = getattr(struct, "space_group", "?")
         cs = getattr(struct, "crystal_system", "?")
         nsites = getattr(struct, "nsites", "?")
-        db_id = material.mp_id or "?"
 
         props = material.get_properties(material.source) if material.properties else None
         eah_str = ""
@@ -453,7 +518,7 @@ def _print_material(material: object, query: str, *, trace: object | None = None
 
         text = (
             f"[bold green]Crystal: {material.chemical_formula}[/bold green]\n"
-            f"  Materials Project ID: [cyan]{db_id}[/cyan]\n"
+            f"{_crystal_source_lines(material)}\n"
             f"  Space group: {sg} ({cs})\n"
             f"  Lattice: a={a:.4g}Å  b={b:.4g}Å  c={c:.4g}Å"
             f"   α={alpha:.4g}°  β={beta:.4g}°  γ={gamma:.4g}°\n"

@@ -38,6 +38,7 @@ class MaterialSource(StrEnum):
     """Records which database a material or property set was fetched from."""
 
     MATERIALS_PROJECT = "materials_project"
+    MC3D = "mc3d"
     PUBCHEM = "pubchem"
     PUBCHEM_QC = "pubchem_qc"
     USER_INPUT = "user_input"  # reserved for post-MVP user-supplied structures
@@ -175,6 +176,64 @@ class MaterialsProjectProperties(BaseProperties):
     magnetic_ordering: str | None = None  # e.g. "Ferromagnetic", "Non-magnetic"
 
 
+class MC3DSourceRecord(BaseModel):
+    """One original-database record an MC3D entry was derived from.
+
+    An MC3D entry may cite more than one source record (e.g. the same
+    experimental structure catalogued in both ICSD and MPDS). The complete
+    ordered list is preserved rather than collapsed to a single label.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    database: str  # e.g. "icsd", "cod", "mpds"
+    record_id: str
+    version: str | None = None
+    is_theoretical: bool | None = None
+    is_high_pressure: bool | None = None
+    is_high_temperature: bool | None = None
+    # ``None`` means the API did not report the flag — never coerce to False.
+
+
+class MC3DProvenanceLink(BaseModel):
+    """One AiiDA provenance link exposed by an MC3D core record."""
+
+    model_config = ConfigDict(frozen=True)
+
+    label: str  # e.g. "Final relax calculation" (PBEsol-v2) or "Final structure"
+    uuid: str
+    url: str
+
+
+class MC3DProperties(BaseProperties):
+    """Bulk properties and provenance from Materials Cloud MC3D.
+
+    Applies to crystals only. MC3D structures are DFT-relaxed geometries
+    derived from a COD/ICSD/MPDS source record, computed at the ``method``
+    methodology (``pbe-v1``, ``pbesol-v1``, or ``pbesol-v2``) — never label an
+    MC3D geometry as the original experimental structure.
+
+    Fields are ``None``/empty when MC3D did not return a value for the entry.
+    """
+
+    source: Literal[MaterialSource.MC3D] = MaterialSource.MC3D
+    method: str  # "pbe-v1" / "pbesol-v1" / "pbesol-v2" — required, no default
+
+    structure_uuid: str
+    sources: list[MC3DSourceRecord] = Field(default_factory=list)
+
+    total_energy_ev_per_cell: float | None = None
+    cell_volume_ang3: float | None = None
+    total_magnetization_mu_b_per_cell: float | None = None
+    absolute_magnetization_mu_b_per_cell: float | None = None
+
+    final_scf_uuid: str | None = None
+    final_structure_uuid: str | None = None
+    provenance_links: list[MC3DProvenanceLink] = Field(default_factory=list)
+    record_url: str | None = None
+    aiida_node_url: str | None = None
+
+
 class PubChemQCProperties(BaseProperties):
     """Molecular electronic properties from the PubChemQC dataset.
 
@@ -205,7 +264,7 @@ class PubChemQCProperties(BaseProperties):
 # from JSON/dicts (model_validate). Without the discriminator, Pydantic would
 # produce bare BaseProperties instances and silently drop subclass-specific fields.
 AnyProperties = Annotated[
-    MaterialsProjectProperties | PubChemQCProperties,
+    MaterialsProjectProperties | MC3DProperties | PubChemQCProperties,
     Field(discriminator="source"),
 ]
 
@@ -259,6 +318,7 @@ class Material(BaseModel):
 
     # ── Database identifiers (prefixed — source-specific keys only) ────────────
     mp_id: str | None = None  # Materials Project ID, e.g. "mp-149"
+    mc3d_id: str | None = None  # MC3D ID, e.g. "mc3d-18058"
     pc_cid: int | None = None  # PubChem Compound ID
 
     # ── Structure ──────────────────────────────────────────────────────────────
@@ -287,3 +347,20 @@ class Material(BaseModel):
     def material_type(self) -> Literal["crystal", "molecule"]:
         """Convenience accessor — delegates to ``structure.material_type``."""
         return self.structure.material_type
+
+    @property
+    def primary_id(self) -> str | None:
+        """Return the identifier associated with :attr:`source`.
+
+        Returns ``mp_id`` for Materials Project, ``mc3d_id`` for MC3D, and the
+        string form of ``pc_cid`` for PubChem/PubChemQC. ``None`` for sources
+        without an applicable database ID, or when the expected ID field was
+        never populated.
+        """
+        if self.source == MaterialSource.MATERIALS_PROJECT:
+            return self.mp_id
+        if self.source == MaterialSource.MC3D:
+            return self.mc3d_id
+        if self.source in (MaterialSource.PUBCHEM, MaterialSource.PUBCHEM_QC):
+            return str(self.pc_cid) if self.pc_cid is not None else None
+        return None

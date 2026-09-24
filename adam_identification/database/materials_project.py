@@ -73,7 +73,11 @@ class MaterialsProjectClient:
         except ConfigurationError as error:
             raise DatabaseAPIError(str(error)) from error
 
-        self._mpr = MPRester(resolved_key)
+        try:
+            self._mpr = MPRester(resolved_key, mute_progress_bars=True)
+        except TypeError:
+            # Older mp-api builds do not accept mute_progress_bars.
+            self._mpr = MPRester(resolved_key)
 
     def search_by_formula(self, formula: str, max_results: int = 10) -> list[Material]:
         """Search crystal entries by chemical formula.

@@ -1,0 +1,34 @@
+{
+  "data": [],
+  "meta": {
+    "query": {
+      "representation": "/main/mc3d-pbesol-v2/v1/structures?filter=chemical_formula_reduced%3D%22ArHe%22&page_limit=5&response_fields=chemical_formula_reduced,nsites,_mcloud_mc3d_id,_mcloud_source_db,_mcloud_source_db_id"
+    },
+    "api_version": "1.2.0",
+    "more_data_available": false,
+    "schema": "https://schemas.optimade.org/openapi/v1.2.0/optimade.json",
+    "time_stamp": "2026-09-23T08:58:09.138212",
+    "data_returned": 0,
+    "provider": {
+      "name": "Materials Cloud",
+      "description": "A platform for Open Science built for seamless sharing of resources in computational materials science",
+      "prefix": "mcloud",
+      "homepage": "https://www.materialscloud.org/"
+    },
+    "data_available": 33142,
+    "implementation": {
+      "name": "OPTIMADE Python Tools",
+      "version": "1.4.1",
+      "homepage": "https://optimade.org/optimade-python-tools",
+      "source_url": "https://github.com/Materials-Consortia/optimade-python-tools",
+      "maintainer": {
+        "email": "dev@optimade.org"
+      },
+      "issue_tracker": "https://github.com/Materials-Consortia/optimade-python-tools/issues"
+    }
+  },
+  "included": [],
+  "links": {
+    "next": null
+  }
+}

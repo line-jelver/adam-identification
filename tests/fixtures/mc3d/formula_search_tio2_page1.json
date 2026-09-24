@@ -1,0 +1,120 @@
+{
+  "data": [
+    {
+      "id": "38e42253-a0b6-499e-adea-2a17e81866b9",
+      "relationships": null,
+      "links": null,
+      "type": "structures",
+      "attributes": {
+        "chemical_formula_reduced": "O2Ti",
+        "nsites": 3,
+        "_mcloud_mc3d_id": "mc3d-19249",
+        "_mcloud_source_db": "icsd",
+        "_mcloud_source_db_id": "189325",
+        "_mcloud_total_energy": -2745.8239568801,
+        "_mcloud_cell_volume": 27.256910730431,
+        "_mcloud_total_magnetization": 0.0,
+        "_mcloud_absolute_magnetization": 0.0
+      }
+    },
+    {
+      "id": "7ceede33-006a-4ea9-bf48-d411e4aaea8b",
+      "relationships": null,
+      "links": null,
+      "type": "structures",
+      "attributes": {
+        "chemical_formula_reduced": "O2Ti",
+        "nsites": 3,
+        "_mcloud_mc3d_id": "mc3d-77114",
+        "_mcloud_source_db": "icsd",
+        "_mcloud_source_db_id": "671268",
+        "_mcloud_total_energy": -2743.8791485963,
+        "_mcloud_cell_volume": 24.226654837205,
+        "_mcloud_total_magnetization": 0.0,
+        "_mcloud_absolute_magnetization": 0.0
+      }
+    },
+    {
+      "id": "d7a1ae6e-33a4-4872-a93f-f67109443cee",
+      "relationships": null,
+      "links": null,
+      "type": "structures",
+      "attributes": {
+        "chemical_formula_reduced": "O2Ti",
+        "nsites": 9,
+        "_mcloud_mc3d_id": "mc3d-33758",
+        "_mcloud_source_db": "icsd",
+        "_mcloud_source_db_id": "671270",
+        "_mcloud_total_energy": -8237.5287205653,
+        "_mcloud_cell_volume": 73.93193963674,
+        "_mcloud_total_magnetization": 0.0,
+        "_mcloud_absolute_magnetization": 0.0
+      }
+    },
+    {
+      "id": "5796ac90-14d9-400b-b583-c5c78e87c85d",
+      "relationships": null,
+      "links": null,
+      "type": "structures",
+      "attributes": {
+        "chemical_formula_reduced": "O2Ti",
+        "nsites": 24,
+        "_mcloud_mc3d_id": "mc3d-14238",
+        "_mcloud_source_db": "icsd",
+        "_mcloud_source_db_id": "189322",
+        "_mcloud_total_energy": -21970.721443274,
+        "_mcloud_cell_volume": 219.40492649298,
+        "_mcloud_total_magnetization": 0.0,
+        "_mcloud_absolute_magnetization": 0.0
+      }
+    },
+    {
+      "id": "6066f75d-7806-487a-a97b-0817c6062791",
+      "relationships": null,
+      "links": null,
+      "type": "structures",
+      "attributes": {
+        "chemical_formula_reduced": "O2Ti",
+        "nsites": 42,
+        "_mcloud_mc3d_id": "mc3d-30223",
+        "_mcloud_source_db": "icsd",
+        "_mcloud_source_db_id": "671954",
+        "_mcloud_total_energy": -38451.504844992,
+        "_mcloud_cell_volume": 428.86094176468,
+        "_mcloud_total_magnetization": 0.0,
+        "_mcloud_absolute_magnetization": 0.0
+      }
+    }
+  ],
+  "meta": {
+    "query": {
+      "representation": "/main/mc3d-pbesol-v2/v1/structures?filter=chemical_formula_reduced%3D%22O2Ti%22&page_limit=5&response_fields=chemical_formula_reduced,nsites,_mcloud_mc3d_id,_mcloud_source_db,_mcloud_source_db_id,_mcloud_total_energy,_mcloud_cell_volume,_mcloud_total_magnetization,_mcloud_absolute_magnetization"
+    },
+    "api_version": "1.2.0",
+    "more_data_available": true,
+    "schema": "https://schemas.optimade.org/openapi/v1.2.0/optimade.json",
+    "time_stamp": "2026-09-23T08:58:06.284116",
+    "data_returned": 20,
+    "provider": {
+      "name": "Materials Cloud",
+      "description": "A platform for Open Science built for seamless sharing of resources in computational materials science",
+      "prefix": "mcloud",
+      "homepage": "https://www.materialscloud.org/"
+    },
+    "data_available": 33142,
+    "implementation": {
+      "name": "OPTIMADE Python Tools",
+      "version": "1.4.1",
+      "homepage": "https://optimade.org/optimade-python-tools",
+      "source_url": "https://github.com/Materials-Consortia/optimade-python-tools",
+      "maintainer": {
+        "email": "dev@optimade.org"
+      },
+      "issue_tracker": "https://github.com/Materials-Consortia/optimade-python-tools/issues"
+    }
+  },
+  "included": [],
+  "links": {
+    "next": "https://optimade.materialscloud.org/main/mc3d-pbesol-v2/v1/structures?filter=chemical_formula_reduced%3D%22O2Ti%22&page_limit=5&response_fields=chemical_formula_reduced%2Cnsites%2C_mcloud_mc3d_id%2C_mcloud_source_db%2C_mcloud_source_db_id%2C_mcloud_total_energy%2C_mcloud_cell_volume%2C_mcloud_total_magnetization%2C_mcloud_absolute_magnetization&page_offset=5"
+  }
+}
