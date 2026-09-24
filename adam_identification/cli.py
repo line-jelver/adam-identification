@@ -282,6 +282,10 @@ def _run_single(
     verbose: bool,
     work_dir: Path,
 ) -> None:
+    from adam_identification.database.retrieval_status import (
+        bind_retrieval_status,
+        reset_retrieval_status,
+    )
     from adam_identification.exceptions import (
         AmbiguousIdentificationError,
         ClarificationNeededError,
@@ -293,8 +297,10 @@ def _run_single(
     _caught: BaseException | None = None
     material = None
     trace = None
-    if verbose:
-        console.print(f"[bold]Identifying:[/bold] {query}")
+
+    def _call(update: object) -> None:
+        nonlocal material, trace, _caught
+        token = bind_retrieval_status(update)  # type: ignore[arg-type]
         try:
             material, trace = run_identification(
                 query,
@@ -310,23 +316,15 @@ def _run_single(
             )
         except BaseException as _exc:
             _caught = _exc
+        finally:
+            reset_retrieval_status(token)
+
+    if verbose:
+        console.print(f"[bold]Identifying:[/bold] {query}")
+        _call(lambda message: console.print(f"[bold]{message}[/bold]"))
     else:
-        with console.status(f"[bold]Identifying:[/bold] {query}"):
-            try:
-                material, trace = run_identification(
-                    query,
-                    provider=provider,
-                    model=model,
-                    mp_api_key=mp_api_key,
-                    crystal_source=crystal_source,
-                    mc3d_method=mc3d_method,
-                    minimal_interaction=minimal_interaction,
-                    work_dir=work_dir,
-                    extra_save_paths=extra,
-                    write_artifacts=True,
-                )
-            except BaseException as _exc:
-                _caught = _exc
+        with console.status(f"[bold]Identifying:[/bold] {query}") as status:
+            _call(lambda message: status.update(f"[bold]{message}[/bold]"))
 
     if _caught is not None:
         err_console.print()

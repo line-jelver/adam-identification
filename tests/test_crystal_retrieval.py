@@ -271,6 +271,23 @@ class TestHydrate:
             retriever.hydrate(candidate)
 
 
+class TestRetrievalStatus:
+    def test_search_announces_the_provider(self) -> None:
+        from adam_identification.database.retrieval_status import (
+            bind_retrieval_status,
+            reset_retrieval_status,
+        )
+
+        messages: list[str] = []
+        token = bind_retrieval_status(messages.append)
+        try:
+            provider = _FakeProvider(MaterialSource.MC3D, candidates=[])
+            CrystalRetriever([provider]).search("Si", 5)
+        finally:
+            reset_retrieval_status(token)
+        assert messages == ["Searching MC3D…"]
+
+
 class TestGetById:
     def test_routes_by_prefix(self) -> None:
         mc3d = _FakeProvider(MaterialSource.MC3D)

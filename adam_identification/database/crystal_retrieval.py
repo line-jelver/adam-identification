@@ -46,6 +46,7 @@ from adam_identification.database.crystal_provider import (
 from adam_identification.database.materials_project import MaterialsProjectClient
 from adam_identification.database.materials_project_provider import MaterialsProjectCrystalProvider
 from adam_identification.database.mc3d import MC3DClient, MC3DMethod
+from adam_identification.database.retrieval_status import announce_search
 from adam_identification.exceptions import DatabaseAPIError, MaterialNotFoundError
 from adam_identification.models import Material, MaterialSource
 
@@ -208,6 +209,7 @@ class CrystalRetriever:
         """
         last_error: DatabaseAPIError | None = None
         for provider in self._ordered_providers():
+            announce_search(provider.source)
             try:
                 result = provider.search_candidates(formula, max_results)
             except DatabaseAPIError as error:
@@ -283,6 +285,7 @@ class CrystalRetriever:
                 f"ID {source_id!r} belongs to {source.value!r}, which is not available "
                 f"under crystal-source policy {self.policy.value!r}."
             )
+        announce_search(source)
         return self._provider_by_source[source].get_by_id(source_id)
 
     def close(self) -> None:

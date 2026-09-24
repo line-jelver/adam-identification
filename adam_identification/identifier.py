@@ -66,6 +66,7 @@ from adam_identification.database.materials_project_provider import (
     MaterialsProjectCrystalProvider,
 )
 from adam_identification.database.pubchem import MoleculeCandidate, PubChemClient
+from adam_identification.database.retrieval_status import announce_search
 from adam_identification.exceptions import (
     AmbiguousIdentificationError,
     ClarificationNeededError,
@@ -73,7 +74,7 @@ from adam_identification.exceptions import (
     MaterialNotFoundError,
 )
 from adam_identification.llm.base import BaseLLM
-from adam_identification.models import Material
+from adam_identification.models import Material, MaterialSource
 from adam_identification.provenance.context import (
     checkpoint,
     identification_stage,
@@ -256,7 +257,12 @@ class MaterialIdentifier:
         try:
             with identification_stage(IdentificationStage.DATABASE_SEARCH):
                 material = self._retriever.get_by_id(source_id)
-        except (MaterialNotFoundError, DatabaseAPIError) as error:
+        except DatabaseAPIError as error:
+            section.outcome = "not_found"
+            _checkpoint_identification()
+            _attach_trace(error, trace)
+            raise
+        except MaterialNotFoundError as error:
             section.outcome = "not_found"
             _checkpoint_identification()
             exc = MaterialNotFoundError(
@@ -457,6 +463,7 @@ class MaterialIdentifier:
 
         name_to_search = search_name or query
         name_candidates: list[MoleculeCandidate] = []
+        announce_search(MaterialSource.PUBCHEM)
         with identification_stage(IdentificationStage.DATABASE_SEARCH):
             try:
                 name_candidates = self._pubchem.get_molecule_candidates(name_to_search)
