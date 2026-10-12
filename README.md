@@ -11,8 +11,7 @@ Given a description like `"silicon"`, `"caffeine"`, or `"rutile TiO2"`, the agen
 
 This implements the **database-grounded** (`methodDB`) workflow benchmarked in:
 
-> Line Jelver et al., *"Database-grounded language-model agents for robust atomistic input-structure identification in solids and molecules"*, 2026.
-> [[DOI — to be added upon publication]]
+> Aagaard Olsen, V., Tholund Nielsen, K., & Jelver, L. (2026). Benchmarking database-grounded language-model agents for atomistic structure identification. Zenodo. https://doi.org/10.5281/zenodo.23312180
 
 ### How it works
 
