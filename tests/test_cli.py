@@ -52,7 +52,7 @@ def test_help_lists_crystal_source_flags() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "--crystal-source" in result.output
-    assert "--mc3d-method" in result.output
+    assert "--mc3d-dataset" in result.output
 
 
 def test_materials_project_without_key_does_not_create_work_dir(

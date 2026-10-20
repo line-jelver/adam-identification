@@ -73,7 +73,7 @@ if TYPE_CHECKING:
     import ase
     import pymatgen.core
 
-__version__ = "2.1.0"
+__version__ = "3.0.0"
 
 
 def batch_identify(
@@ -83,7 +83,7 @@ def batch_identify(
     model: str | None = None,
     mp_api_key: str | None = None,
     crystal_source: str = "auto",
-    mc3d_method: str = "pbesol-v2",
+    mc3d_dataset: str = "pbesol-v2",
     concurrency: int = 5,
     output: Literal["ase", "pymatgen", "material", "result"] = "ase",
     minimal_interaction: bool = False,
@@ -100,7 +100,7 @@ def batch_identify(
         model=model,
         mp_api_key=mp_api_key,
         crystal_source=crystal_source,
-        mc3d_method=mc3d_method,
+        mc3d_dataset=mc3d_dataset,
         concurrency=concurrency,
         output=output,
         minimal_interaction=minimal_interaction,
@@ -140,7 +140,7 @@ def identify(
     output: Literal["ase", "pymatgen", "material", "result"] = "ase",
     mp_api_key: str | None = None,
     crystal_source: str = "auto",
-    mc3d_method: str = "pbesol-v2",
+    mc3d_dataset: str = "pbesol-v2",
     minimal_interaction: bool = False,
     work_dir: str | None = None,
 ) -> (
@@ -165,7 +165,7 @@ def identify(
             ``crystal_source`` is ``materials-project``, or as the ``auto``
             fallback when set.
         crystal_source: ``auto`` (default), ``mc3d``, or ``materials-project``.
-        mc3d_method: MC3D dataset ``pbe-v1``, ``pbesol-v1``, or ``pbesol-v2``
+        mc3d_dataset: MC3D dataset ``pbe-v1``, ``pbesol-v1``, or ``pbesol-v2``
             (default). This selects the published database, not an execution
             exchange-correlation functional.
         minimal_interaction: When ``True``, always select and flag
@@ -193,7 +193,7 @@ def identify(
         model=model,
         mp_api_key=mp_api_key,
         crystal_source=crystal_source,
-        mc3d_method=mc3d_method,
+        mc3d_dataset=mc3d_dataset,
         minimal_interaction=minimal_interaction,
         work_dir=wd,
         write_artifacts=wd is not None,

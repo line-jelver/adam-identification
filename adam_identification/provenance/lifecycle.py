@@ -248,7 +248,7 @@ def run_identification(
     model: str | None = None,
     mp_api_key: str | None = None,
     crystal_source: str = "auto",
-    mc3d_method: str = "pbesol-v2",
+    mc3d_dataset: str = "pbesol-v2",
     minimal_interaction: bool = False,
     work_dir: Path | None = None,
     extra_save_paths: list[Path] | None = None,
@@ -284,7 +284,7 @@ def run_identification(
             try:
                 llm = get_provider(provider, model)
                 retriever = build_crystal_retriever(
-                    crystal_source, mc3d_method, mp_api_key=mp_api_key
+                    crystal_source, mc3d_dataset, mp_api_key=mp_api_key
                 )
                 pubchem_client = PubChemClient()
             except BaseException as exc:

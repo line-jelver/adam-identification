@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from adam_identification.database.crystal_provider import CrystalCandidate
-from adam_identification.database.mc3d import MC3DClient, MC3DMethod
+from adam_identification.database.mc3d import MC3DClient, MC3DDataset
 from adam_identification.database.mc3d_models import (
     cartesian_to_fractional,
     lattice_parameters,
@@ -69,7 +69,7 @@ def _client(
     handler = _RecordingHandler(responder)
     transport = httpx.MockTransport(handler)
     http_client = httpx.Client(transport=transport, follow_redirects=False)
-    return MC3DClient(MC3DMethod.PBESOL_V2, client=http_client, **kwargs), handler
+    return MC3DClient(MC3DDataset.PBESOL_V2, client=http_client, **kwargs), handler
 
 
 # ── Formula canonicalization ────────────────────────────────────────────────
@@ -204,13 +204,13 @@ class TestValidateSpeciesAtSites:
             validate_species_at_sites(["Ti"], dupes)
 
 
-# ── MC3DMethod / constructor validation ─────────────────────────────────────
+# ── MC3DDataset / constructor validation ─────────────────────────────────────
 
 
-class TestMC3DMethodValidation:
+class TestMC3DDatasetValidation:
     def test_valid_method_strings_accepted(self) -> None:
         client, _ = _client(lambda r: httpx.Response(200, json={}))
-        assert client.method == MC3DMethod.PBESOL_V2
+        assert client.dataset == MC3DDataset.PBESOL_V2
 
     def test_invalid_method_raises(self) -> None:
         with pytest.raises(ValueError, match="pbesol-v3|not a valid"):
@@ -218,12 +218,12 @@ class TestMC3DMethodValidation:
 
     def test_non_positive_cache_size_raises(self) -> None:
         with pytest.raises(ValueError, match="max_core_cache_entries"):
-            MC3DClient(MC3DMethod.PBE_V1, max_core_cache_entries=0)
+            MC3DClient(MC3DDataset.PBE_V1, max_core_cache_entries=0)
 
     def test_default_method_is_pbe_v1(self) -> None:
         """Conservative default -- pbesol-v2 must be requested explicitly."""
         client = MC3DClient()
-        assert client.method == MC3DMethod.PBE_V1
+        assert client.dataset == MC3DDataset.PBE_V1
         client.close()
 
 

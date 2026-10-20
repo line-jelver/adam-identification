@@ -180,7 +180,7 @@ class IdentificationSection(BaseModel):
 
 def discover_environment() -> EnvironmentRecord:
     """Return package and Python versions for a new :class:`Trace`."""
-    version = "2.1.0"
+    version = "3.0.0"
     try:
         from importlib.metadata import version as pkg_version
 

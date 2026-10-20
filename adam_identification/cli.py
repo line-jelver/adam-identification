@@ -123,11 +123,14 @@ def identify_cmd(
             help="auto (MC3D, then Materials Project if a key is set), mc3d, or materials-project.",
         ),
     ] = "auto",
-    mc3d_method: Annotated[
+    mc3d_dataset: Annotated[
         str,
         typer.Option(
-            "--mc3d-method",
-            help="MC3D dataset: pbe-v1, pbesol-v1, or pbesol-v2. Not the execution XC functional.",
+            "--mc3d-dataset",
+            help=(
+                "MC3D dataset to read: pbe-v1, pbesol-v1, or pbesol-v2. "
+                "This selects only which published structures are searched."
+            ),
         ),
     ] = "pbesol-v2",
     minimal_interaction: Annotated[
@@ -194,7 +197,7 @@ def identify_cmd(
             raise typer.Exit(1) from exc
 
     try:
-        probe = build_crystal_retriever(crystal_source, mc3d_method, mp_api_key=mp_api_key)
+        probe = build_crystal_retriever(crystal_source, mc3d_dataset, mp_api_key=mp_api_key)
         probe.close()
     except (ConfigurationError, ValueError) as exc:
         err_console.print(f"[red]Error:[/red] {exc}")
@@ -213,7 +216,7 @@ def identify_cmd(
             concurrency=concurrency,
             mp_api_key=mp_api_key,
             crystal_source=crystal_source,
-            mc3d_method=mc3d_method,
+            mc3d_dataset=mc3d_dataset,
             minimal_interaction=minimal_interaction,
             work_dir=resolved_work_dir,
         )
@@ -226,7 +229,7 @@ def identify_cmd(
             save=save,
             mp_api_key=mp_api_key,
             crystal_source=crystal_source,
-            mc3d_method=mc3d_method,
+            mc3d_dataset=mc3d_dataset,
             minimal_interaction=minimal_interaction,
             verbose=verbose,
             work_dir=resolved_work_dir,
@@ -277,7 +280,7 @@ def _run_single(
     save: Path | None,
     mp_api_key: str | None,
     crystal_source: str,
-    mc3d_method: str,
+    mc3d_dataset: str,
     minimal_interaction: bool,
     verbose: bool,
     work_dir: Path,
@@ -308,7 +311,7 @@ def _run_single(
                 model=model,
                 mp_api_key=mp_api_key,
                 crystal_source=crystal_source,
-                mc3d_method=mc3d_method,
+                mc3d_dataset=mc3d_dataset,
                 minimal_interaction=minimal_interaction,
                 work_dir=work_dir,
                 extra_save_paths=extra,
@@ -354,7 +357,7 @@ def _run_batch(
     concurrency: int,
     mp_api_key: str | None,
     crystal_source: str,
-    mc3d_method: str,
+    mc3d_dataset: str,
     minimal_interaction: bool,
     work_dir: Path,
 ) -> None:
@@ -371,7 +374,7 @@ def _run_batch(
         model=model,
         mp_api_key=mp_api_key,
         crystal_source=crystal_source,
-        mc3d_method=mc3d_method,
+        mc3d_dataset=mc3d_dataset,
         concurrency=concurrency,
         output="material",
         minimal_interaction=minimal_interaction,

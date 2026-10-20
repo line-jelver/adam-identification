@@ -367,7 +367,7 @@ class TestBuildCrystalRetriever:
             "adam_identification.database.crystal_retrieval.MaterialsProjectClient",
             return_value=MagicMock(),
         ):
-            retriever = build_crystal_retriever(crystal_source="auto", mc3d_method="pbesol-v2")
+            retriever = build_crystal_retriever(crystal_source="auto", mc3d_dataset="pbesol-v2")
         try:
             assert retriever.policy == "auto"
             assert isinstance(retriever._providers[0], MC3DClient)  # noqa: SLF001
@@ -383,12 +383,12 @@ class TestBuildCrystalRetriever:
         with patch(
             "adam_identification.database.crystal_retrieval.MaterialsProjectClient"
         ) as mock_mp:
-            retriever = build_crystal_retriever(crystal_source="mc3d", mc3d_method="pbesol-v1")
+            retriever = build_crystal_retriever(crystal_source="mc3d", mc3d_dataset="pbesol-v1")
         try:
             mock_mp.assert_not_called()
             assert retriever.policy == "mc3d"
             assert len(retriever._providers) == 1  # noqa: SLF001
-            assert retriever._providers[0].method == "pbesol-v1"  # noqa: SLF001
+            assert retriever._providers[0].dataset == "pbesol-v1"  # noqa: SLF001
         finally:
             retriever._providers[0].close()  # noqa: SLF001
 
@@ -410,7 +410,7 @@ class TestBuildCrystalRetriever:
         ):
             retriever = build_crystal_retriever(
                 crystal_source="materials-project",
-                mc3d_method="pbesol-v2",
+                mc3d_dataset="pbesol-v2",
             )
         mock_mc3d.assert_not_called()
         mock_mp.assert_called_once_with(api_key="test-key")
@@ -421,9 +421,9 @@ class TestBuildCrystalRetriever:
         with pytest.raises(ValueError, match="Unknown crystal source"):
             build_crystal_retriever(crystal_source="cod")
 
-    def test_unknown_mc3d_method_raises_value_error(self) -> None:
-        with pytest.raises(ValueError, match="Unknown MC3D method"):
-            build_crystal_retriever(mc3d_method="lda")
+    def test_unknown_mc3d_dataset_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="Unknown MC3D dataset"):
+            build_crystal_retriever(mc3d_dataset="lda")
 
     def test_materials_project_without_key_raises_configuration_error(
         self, monkeypatch: pytest.MonkeyPatch

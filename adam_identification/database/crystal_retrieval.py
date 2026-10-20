@@ -45,7 +45,7 @@ from adam_identification.database.crystal_provider import (
 )
 from adam_identification.database.materials_project import MaterialsProjectClient
 from adam_identification.database.materials_project_provider import MaterialsProjectCrystalProvider
-from adam_identification.database.mc3d import MC3DClient, MC3DMethod
+from adam_identification.database.mc3d import MC3DClient, MC3DDataset
 from adam_identification.database.retrieval_status import announce_search
 from adam_identification.exceptions import DatabaseAPIError, MaterialNotFoundError
 from adam_identification.models import Material, MaterialSource
@@ -316,13 +316,13 @@ _CRYSTAL_SOURCE_TOKENS: dict[str, CrystalSourcePolicy] = {
 
 def build_crystal_retriever(
     crystal_source: str = "auto",
-    mc3d_method: str = "pbesol-v2",
+    mc3d_dataset: str = "pbesol-v2",
     *,
     mp_api_key: str | None = None,
 ) -> CrystalRetriever:
     """Build a :class:`CrystalRetriever` for a ``--crystal-source``-style token.
 
-    The single place that turns ``adam``'s ``--crystal-source``/``--mc3d-method``
+    The single place that turns ``adam``'s ``--crystal-source``/``--mc3d-dataset``
     CLI tokens into a configured retriever. MC3D needs no credentials, so
     ``"auto"`` and ``"mc3d"`` always include it. ``"auto"`` adds Materials
     Project only when ``MATERIALS_PROJECT_API_KEY`` is already set. An
@@ -333,7 +333,7 @@ def build_crystal_retriever(
     Args:
         crystal_source: ``"auto"`` (default), ``"mc3d"``, or
             ``"materials-project"``.
-        mc3d_method: MC3D methodology token: ``"pbe-v1"``, ``"pbesol-v1"``,
+        mc3d_dataset: MC3D dataset token: ``"pbe-v1"``, ``"pbesol-v1"``,
             or ``"pbesol-v2"`` (default). Selects the published dataset, not
             the functional used later in a calculation.
 
@@ -341,7 +341,7 @@ def build_crystal_retriever(
         Retriever whose provider list matches ``crystal_source``.
 
     Raises:
-        ValueError: If ``crystal_source`` or ``mc3d_method`` is not supported.
+        ValueError: If ``crystal_source`` or ``mc3d_dataset`` is not supported.
         ConfigurationError: If ``crystal_source`` is ``"materials-project"``
             and ``MATERIALS_PROJECT_API_KEY`` is not set.
     """
@@ -355,11 +355,11 @@ def build_crystal_retriever(
         ) from error
 
     try:
-        method = MC3DMethod(mc3d_method.strip().lower())
+        dataset = MC3DDataset(mc3d_dataset.strip().lower())
     except ValueError as error:
-        allowed = ", ".join(item.value for item in MC3DMethod)
+        allowed = ", ".join(item.value for item in MC3DDataset)
         raise ValueError(
-            f"Unknown MC3D method {mc3d_method!r}. Expected one of: {allowed}."
+            f"Unknown MC3D dataset {mc3d_dataset!r}. Expected one of: {allowed}."
         ) from error
 
     resolved_mp_key = mp_api_key or settings.materials_project_api_key
@@ -371,7 +371,7 @@ def build_crystal_retriever(
             MaterialsProjectCrystalProvider(MaterialsProjectClient(api_key=resolved_mp_key))
         )
     else:
-        providers.append(MC3DClient(method=method))
+        providers.append(MC3DClient(dataset=dataset))
         if policy is CrystalSourcePolicy.AUTO and resolved_mp_key:
             providers.append(
                 MaterialsProjectCrystalProvider(MaterialsProjectClient(api_key=resolved_mp_key))

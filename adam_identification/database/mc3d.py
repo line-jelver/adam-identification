@@ -106,8 +106,8 @@ _HYDRATE_RESPONSE_FIELDS = (
 _FINAL_CALCULATION_LABELS = ("Final relax calculation", "Final SCF calculation")
 
 
-class MC3DMethod(StrEnum):
-    """Allowed MC3D methodology identifiers.
+class MC3DDataset(StrEnum):
+    """Allowed MC3D dataset identifiers.
 
     The only valid values are ``"pbe-v1"``, ``"pbesol-v1"``, and
     ``"pbesol-v2"``. Constructing this enum from any other string raises
@@ -126,13 +126,13 @@ class MC3DClient:
     against MC3D's public OPTIMADE and MCXD-metadata REST APIs.
 
     Args:
-        method: MC3D methodology to query. Defaults to
-            :attr:`MC3DMethod.PBE_V1` — the long-established, already-
+        dataset: MC3D dataset to query. Defaults to
+            :attr:`MC3DDataset.PBE_V1` — the long-established, already-
             qualified method. Materials computed with the newer
             ``pbesol-v2`` methodology have not yet had their pseudopotential
             compatibility and relaxation behavior qualified elsewhere in
             ADaM, so callers that intentionally target PBEsol-v2 must pass
-            ``method=MC3DMethod.PBESOL_V2`` explicitly rather than relying
+            ``dataset=MC3DDataset.PBESOL_V2`` explicitly rather than relying
             on a default that could silently change later.
         client: Optional pre-built ``httpx.Client`` (e.g. for tests with a
             mocked transport). If omitted, this instance creates and owns
@@ -146,7 +146,7 @@ class MC3DClient:
 
     Usage::
 
-        with MC3DClient(method=MC3DMethod.PBESOL_V2) as client:
+        with MC3DClient(dataset=MC3DDataset.PBESOL_V2) as client:
             result = client.search_candidates("TiO2", max_results=20)
             material = client.hydrate(result.candidates[0])
     """
@@ -155,15 +155,15 @@ class MC3DClient:
 
     def __init__(
         self,
-        method: MC3DMethod | str = MC3DMethod.PBE_V1,
+        dataset: MC3DDataset | str = MC3DDataset.PBE_V1,
         *,
         client: httpx.Client | None = None,
         timeout_s: float = 20.0,
         max_core_cache_entries: int = 100,
     ) -> None:
-        self.method = MC3DMethod(method)
-        self._optimade_base = f"{_OPTIMADE_ROOT}/mc3d-{self.method.value}/v1"
-        self._mcxd_base = f"{_MCXD_ROOT}/{self.method.value}"
+        self.dataset = MC3DDataset(dataset)
+        self._optimade_base = f"{_OPTIMADE_ROOT}/mc3d-{self.dataset.value}/v1"
+        self._mcxd_base = f"{_MCXD_ROOT}/{self.dataset.value}"
 
         if max_core_cache_entries < 1:
             raise ValueError("max_core_cache_entries must be >= 1")
@@ -365,7 +365,7 @@ class MC3DClient:
             source_id=mc3d_id,
             structure_ref=core.general.structure_uuid,
             formula=formula,
-            method=self.method.value,
+            method=self.dataset.value,
             space_group=core.general.spacegroup_international,
             space_group_number=space_group_number,
             crystal_system=crystal_system,
@@ -524,7 +524,7 @@ class MC3DClient:
             None,
         )
         return MC3DProperties(
-            method=self.method.value,
+            method=self.dataset.value,
             structure_uuid=structure_uuid,
             sources=[
                 MC3DSourceRecord(
@@ -568,7 +568,7 @@ class MC3DClient:
         )
 
     def _aiida_node_url(self, node_uuid: str) -> str:
-        return f"{_AIIDA_ROOT}/mc3d-{self.method.value}/api/v4/nodes/{node_uuid}"
+        return f"{_AIIDA_ROOT}/mc3d-{self.dataset.value}/api/v4/nodes/{node_uuid}"
 
     # ── Bounded LRU cache helper ─────────────────────────────────────────────
 
@@ -653,4 +653,4 @@ class MC3DClient:
             return bytes(chunks), response.status_code
 
 
-__all__ = ["MC3DClient", "MC3DMethod"]
+__all__ = ["MC3DClient", "MC3DDataset"]
